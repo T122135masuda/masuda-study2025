@@ -1,0 +1,54 @@
+# --- Unity core ---
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+UserSettings/
+
+# --- IDE / OS ---
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.user
+*.unityproj
+*.pidb
+*.booproj
+*.svd
+*.suo
+*.tmp
+*.userprefs
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Unity cache / auto-generated ---
+/Assets/AssetStoreTools*
+/Assets/StreamingAssets/aa/*/*.bundle
+sysinfo.txt
+
+# --- Crash / reports ---
+*.stackdump
+
+# --- Addressables (generated) ---
+/Assets/AddressableAssetsData/*/*.bin
+/Assets/AddressableAssetsData/*/catalog_*.json
+/ServerData/
+
+# --- Rider / JetBrains ---
+.idea/
+*.DotSettings.user
+
+# --- Visual Studio cache ---
+[Bb]in/
+[Oo]bj/
+
+# --- TextMeshPro (generated) ---
+/Assets/TextMesh Pro/Resources/*
+
+# --- Collaborate / Plastic SCM (念のため) ---
+/.collabignore
+/.plastic/
