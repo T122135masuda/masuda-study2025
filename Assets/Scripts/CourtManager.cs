@@ -17,6 +17,55 @@ public class CourtManager : MonoBehaviour
 
     private Bounds _floorBoundsWorld;
 
+    [Header("Global Height Settings")]
+    [Tooltip("全エージェントに共通の高さ変化設定を適用する")]
+    public bool enableGlobalHeightSettings = true;
+    [Tooltip("全エージェントの高さ変化を有効にする")]
+    public bool globalEnableHeightVariation = true;
+    [Tooltip("全エージェントの高さ変化速度")]
+    public float globalHeightChangeSpeed = 0.5f;
+    [Tooltip("全エージェント高さ速度の最小/最大範囲（参考）")]
+    public Vector2 globalHeightSpeedRange = new Vector2(0.1f, 3.0f);
+
+    private void Update()
+    {
+        if (!enableGlobalHeightSettings) return;
+
+        // エージェントへ一括適用（毎フレーム）
+        for (int i = 0; i < agents.Count; i++)
+        {
+            var agent = agents[i];
+            if (agent == null) continue;
+            agent.enableHeightVariation = globalEnableHeightVariation;
+            agent.SetHeightChangeSpeed(globalHeightChangeSpeed);
+        }
+    }
+
+    // インスペクターやスクリプトから一括設定するAPI
+    public void SetGlobalHeightChangeSpeed(float newSpeed)
+    {
+        globalHeightChangeSpeed = Mathf.Clamp(newSpeed, globalHeightSpeedRange.x, globalHeightSpeedRange.y);
+        if (!enableGlobalHeightSettings) return;
+        for (int i = 0; i < agents.Count; i++)
+        {
+            var agent = agents[i];
+            if (agent == null) continue;
+            agent.SetHeightChangeSpeed(globalHeightChangeSpeed);
+        }
+    }
+
+    public void SetGlobalHeightVariationEnabled(bool enabled)
+    {
+        globalEnableHeightVariation = enabled;
+        if (!enableGlobalHeightSettings) return;
+        for (int i = 0; i < agents.Count; i++)
+        {
+            var agent = agents[i];
+            if (agent == null) continue;
+            agent.enableHeightVariation = enabled;
+        }
+    }
+
     private void Awake()
     {
         if (Instance != null && Instance != this)

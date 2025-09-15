@@ -1,0 +1,182 @@
+現在の機能一覧（詳細）
+
+1) AutoSetup（自動セットアップ）
+- 目的: シーン起動時に必要な管理オブジェクト/コンポーネントを自動で整える
+- 主な動作:
+  - CourtManager を自動生成（シーンに存在しない場合）
+  - 指定名のエージェントを検出し、BasketballAgentController を自動付与
+    - 検出名: "Capsule-w-1", "Capsule-w-2", "Capsule-w-3", "Capsule-b-1", "Capsule-b-2", "Capsule-b-3"
+  - CharacterController を未付与なら追加し、基本設定を行う
+    - center = (0, 1.0, 0), height = 2.0, radius = 0.4
+  - Rigidbody がある場合は isKinematic = true, useGravity = false
+  - "head-camera" を探し、FirstPersonCamera と Camera を付与（なければ警告）
+  - 既存 Main Camera を無効化（オプション: disableMainCamera）
+
+2) CourtManager（コート管理・一括設定）
+- 目的: コート境界/壁/エージェントの管理と高さ変化の一括設定
+- 主なプロパティ:
+  - floorRenderer: コート床の MeshRenderer（自動検出）
+  - agents: 登録済みエージェント一覧（自動）
+  - wallColliders: 壁の Collider 一覧（"wall1","wall2","wall3" の子孫から収集）
+- 自動検出:
+  - 床の検出: 名前/階層や水平面積から最適な MeshRenderer を推測
+- API/機能:
+  - RegisterAgent/UnregisterAgent: エージェントの登録/解除
+  - TryGetFloorBounds: コート境界 Bounds を取得
+  - RefreshWalls: 壁コライダー一覧の更新
+- 一括高さ制御（グローバル設定）:
+  - enableGlobalHeightSettings: 一括適用の ON/OFF
+  - globalEnableHeightVariation: 全員の高さ変化 ON/OFF
+  - globalHeightChangeSpeed: 全員の高さ変化スピード
+  - globalHeightSpeedRange: スピードの参考範囲（0.1〜3.0）
+  - Update() 内で毎フレーム、全エージェントへ以下を強制適用:
+    - agent.enableHeightVariation = globalEnableHeightVariation
+    - agent.SetHeightChangeSpeed(globalHeightChangeSpeed)
+  - 公開API:
+    - SetGlobalHeightChangeSpeed(float newSpeed)
+    - SetGlobalHeightVariationEnabled(bool enabled)
+
+3) BasketballAgentController（エージェント挙動）
+- 目的: 各カプセルの移動/回避/隊列/一時停止/高さ変化を制御
+- 基本移動/回転:
+  - maxSpeed, acceleration, turnSpeedDegPerSec
+  - SpeedPreset: Slow/Normal/Fast/VeryFast（ApplySpeedPresetで一括反映）
+  - CharacterController.Move により XZ 平面上を移動（Y は固定）
+- ランダム徘徊（Wander）:
+  - wanderRadius, wanderDistance, wanderJitter
+  - useFixedRandom = true の場合、シード + エージェントID により再現性のある位相ずらし
+- エージェント相互作用:
+  - Separation（分離）: 近距離で離反力（くっつき過ぎたら互いに少し離れる）
+  - Avoidance（回避）: 進行方向に側へずれる力を足してぶつからないようにする（真正面から避けるのではなく、少し横へずれて通り抜ける）
+- 境界維持:
+  - TryGetFloorBounds の Bounds 内へ押し戻し（床の四角い範囲の外に出ないように内側へ戻す）
+  - predictiveBoundaryDistance による予測チェック（今の進む向きを少し先まで見て、外に出そうなら事前に弱く戻す）
+  - zBoundaryExtraPadding により Z 方向に余裕（手前/奥方向だけ少し狭めて、外に出にくくする）
+  - boundaryPushStrength, boundaryForceMultiplier, maxBoundaryForce で押し戻し力を制御
+  - Capsule-w-1 はデバッグログを追加出力
+- 壁回避:
+  - 近傍点から法線方向に押し返し（壁にめり込まないように、壁から垂直に離れる力をかける）
+  - 壁タンジェント方向へスライド（初心者向け説明: 壁にぶつかったとき、壁に沿って横へ滑る。廊下の壁伝いに進むイメージ）
+  - 至近時は強制方向転換で脱出（壁にとても近いときは、無理やり向きを変えて抜け出す）
+- チーム行動:
+  - 名前からチーム判定（white/black/neutral）
+  - Cohesion（結束）: チーム中心へ引く（仲間の真ん中に寄りすぎず離れすぎず集まる）
+  - Formation（隊列）: 2.0〜4.0m を目安に距離調整（近すぎたら離れ、遠すぎたら近づいて程よい間隔を保つ）
+  - OpponentAvoidance（相手回避）
+- 人間らしさ:
+  - アイドル（停止）: 固定ランダム/通常ランダム
+  - ランダム方向転換
+  - ダッシュ: 一定時間だけ速度倍率を適用
+- 一時停止:
+  - 個別 Pause/Resume/IsPaused
+  - グローバル: ToggleGlobalPause（Enterキー）, PauseAll, ResumeAll
+- 高さ変化（見た目 + 当たり判定同期）:
+  - enableHeightVariation: 高さ変化 ON/OFF
+  - サイン波で初期値の 50%〜100% にて localScale.y を変化（上限は初期値。背伸びはしない、最大は最初の背丈）
+  - CharacterController.height と center.y を係数同期（見た目の高さに合わせて当たり判定の高さ・中心も一緒に変える）
+  - 速度調整（個別/一括）:
+    - 個別: heightChangeSpeed（範囲: heightChangeSpeedRange）
+    - 一括: CourtManager.globalHeightChangeSpeed（enableGlobalHeightSettings が ON の場合、毎フレーム強制適用）
+
+
+4) FirstPersonCamera（一人称カメラ）
+- 目的: VR を意識した一人称視点カメラ制御
+- カメラ設定:
+  - fieldOfView, nearClipPlane, farClipPlane, Skybox, Forward Rendering
+  - enableVRMode, enableStereoRendering（MSAA=4x）
+- 視点操作:
+  - mouseSensitivity, 垂直角クランプ（maxLookUpAngle, maxLookDownAngle）
+  - 初期回転は右 90 度
+- 位置オフセット:
+  - headOffset（autoAdjustOffset が有効なら親基準で自動調整）
+- 入出力:
+  - ESC キーでカーソルロック切替
+  - API: SetCameraActive(bool), SetVRMode(bool), SetFieldOfView(float), SetHeadOffset(Vector3)
+
+運用上のメモ
+- グローバル高さ制御を使う場合は、CourtManager のインスペクターで
+  - enableGlobalHeightSettings を ON
+  - globalEnableHeightVariation を ON/OFF
+  - globalHeightChangeSpeed を希望値に設定
+- 個別エージェントの速度を使いたい場合は、enableGlobalHeightSettings を OFF にして
+  - 各エージェントの heightChangeSpeed を設定
+- 実行中にスクリプトを編集した場合、再コンパイルで一部状態が初期化されるため、意図した設定にならない場合は再生を停止→再生し直してください。
+
+
+変数一覧と変更箇所（どこで変えられるか）
+
+1) AutoSetup（コンポーネント: AutoSetup）
+- agentNames (string[]) : 自動で探すエージェント名の一覧。インスペクター（AutoSetup）で変更
+- setupFirstPersonCamera (bool) : 起動時に head-camera を一人称用に設定するか。インスペクターで変更
+- disableMainCamera (bool) : 既存の Main Camera を無効化するか。インスペクターで変更
+
+2) CourtManager（コンポーネント: CourtManager）
+- floorRenderer (MeshRenderer) : コート床の見た目を持つレンダラー。インスペクターで手動指定可（未指定なら自動検出）
+- agents (List<BasketballAgentController>) : 管理対象のエージェント一覧。自動登録（インスペクター変更対象外）
+- wallColliders (List<Collider>) : 壁の当たり判定一覧。RefreshWallsで自動収集（インスペクター変更対象外）
+- enableGlobalHeightSettings (bool) : 高さ変化をグローバルに一括適用するスイッチ。インスペクターで変更
+- globalEnableHeightVariation (bool) : 全員の高さ変化を有効/無効。インスペクターで変更
+- globalHeightChangeSpeed (float) : 全員の高さ変化スピード（大きいほど速い）。インスペクターで変更／API可
+- globalHeightSpeedRange (Vector2) : 設定推奨の最小/最大速度。インスペクターで変更（参考範囲）
+
+3) BasketballAgentController（コンポーネント: 各Capsule）
+- Move Params（移動特性）
+  - maxSpeed (float) : 最大移動速度（m/s）。インスペクターで変更／プリセットでも更新
+  - acceleration (float) : 速度の上がりやすさ（加速の強さ）。インスペクターで変更
+  - turnSpeedDegPerSec (float) : 1秒あたりの最大回転角度（度/秒）。インスペクターで変更
+- Random Wander（徘徊）
+  - wanderJitter (float) : ふらつきの強さ（数値が大きいほど進路が揺れる）。インスペクターで変更
+  - wanderRadius (float) : 進路の円の半径（大きいほど大回り）。インスペクターで変更
+  - wanderDistance (float) : 現在位置から先の目標円までの距離。インスペクターで変更
+- Separation / Avoidance（他者との距離・回避）
+  - separationRadius (float) : 離れようとする距離のしきい値。インスペクターで変更
+  - avoidanceRadius (float) : 回避動作を始める距離のしきい値。インスペクターで変更
+  - separationStrength (float) : 離れる力の強さ。インスペクターで変更
+  - avoidanceStrength (float) : 回避の強さ（横へずれる力）。インスペクターで変更
+- Boundary（境界維持）
+  - boundaryPadding (float) : 床の端からどれだけ内側を安全域とするか。インスペクターで変更
+  - boundaryPushStrength (float) : 内側へ戻す基本の強さ。インスペクターで変更
+  - boundaryForceMultiplier (float) : はみ出し量に応じた追加倍率。インスペクターで変更
+  - maxBoundaryForce (float) : 押し戻し力の上限。インスペクターで変更
+  - zBoundaryExtraPadding (float) : 手前/奥方向の追加安全域。インスペクターで変更
+  - predictiveBoundaryDistance (float) : 先読み距離（この距離先で外に出そうなら早めに戻す）。インスペクターで変更
+- Wall Avoidance（壁回避）
+  - wallDetectDistance (float) : 壁に近いとみなす距離。インスペクターで変更
+  - wallAvoidStrength (float) : 壁から離れ、沿って滑る力の強さ。インスペクターで変更
+- Human-like Movement（人間らしさ）
+  - idleChance (float) : 立ち止まる傾向（確率）。インスペクターで変更
+  - directionChangeChance (float) : 進行方向を変える傾向（確率）。インスペクターで変更
+  - sprintChance (float) : ダッシュを始める傾向（確率）。インスペクターで変更
+  - sprintMultiplier (float) : ダッシュ時の速度倍率。インスペクターで変更
+- Team Play（チーム行動）
+  - teamCohesionRadius (float) : 仲間の中心に寄る距離しきい値。インスペクターで変更
+  - teamCohesionStrength (float) : 中心に引かれる力の強さ。インスペクターで変更
+  - teamFormationStrength (float) : 間隔を2〜4mに保つ調整の強さ。インスペクターで変更
+  - opponentAvoidanceRadius (float) : 相手を避け始める距離。インスペクターで変更
+  - opponentAvoidanceStrength (float) : 相手から離れる力の強さ。インスペクターで変更
+- Research - Fixed Random（再現用）
+  - seed (int) : 再現性のある乱数の基準。インスペクターで変更
+  - useFixedRandom (bool) : 固定乱数を使うか。インスペクターで変更
+- Speed Presets（速度プリセット）
+  - speedPreset (enum) : 代表的な速度設定（Slow/Normal/Fast/VeryFast）。インスペクターで変更
+- Pause Control（一時停止）
+  - enablePauseControl (bool) : Enterで全エージェント一時停止/再開を許可。インスペクターで変更
+  - startPaused (bool) : 開始時に停止状態にするか。インスペクターで変更
+- Height Variation（高さ変化）
+  - enableHeightVariation (bool) : 高さを変化させるか。インスペクターで変更（グローバル有効時は上書き）
+  - heightChangeSpeed (float) : 高さの変化速度（サイン波の速さ）。インスペクター／APIで変更
+  - heightChangeSpeedRange (Vector2) : 許容する最小/最大の速度。インスペクターで変更
+
+備考: CourtManager の enableGlobalHeightSettings が ON の場合、各エージェントの
+enableHeightVariation と heightChangeSpeed は CourtManager の設定で毎フレーム上書きされます。
+
+4) FirstPersonCamera（コンポーネント: head-camera）
+- fieldOfView (float) : 視野角（広いほど周辺が見えるが歪みやすい）。インスペクター／APIで変更
+- nearClipPlane (float), farClipPlane (float) : 描画する手前/奥の距離。インスペクターで変更
+- mouseSensitivity (float) : マウスの向き変更の敏感さ。インスペクターで変更
+- maxLookUpAngle (float), maxLookDownAngle (float) : 上下にどこまで見上げ/見下ろせるか。インスペクターで変更
+- headOffset (Vector3) : 視点の位置オフセット（親からの相対位置）。インスペクター／APIで変更
+- autoAdjustOffset (bool) : 起動時に現在位置から headOffset を自動算出。インスペクターで変更
+- enableVRMode (bool) : VR向けの投影/レンダリング設定を使うか。インスペクター／APIで変更
+- vrIPD (float) : 瞳孔間距離の想定（立体視の基準）。インスペクターで変更
+- enableStereoRendering (bool) : ステレオ描画を有効化するか。インスペクターで変更

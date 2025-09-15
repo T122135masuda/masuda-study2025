@@ -119,6 +119,19 @@ public class BasketballAgentController : MonoBehaviour
     private float _sprintDuration = 0f;
     private int _agentId = 0;
     
+    [Header("Height Variation")]
+    [Tooltip("高さ変化を有効にする")]
+    public bool enableHeightVariation = true;
+    [Tooltip("高さ変化の速度（サイン波の角速度係数）")]
+    public float heightChangeSpeed = 0.5f;
+    [Tooltip("高さ変化速度の最小値／最大値")]
+    public Vector2 heightChangeSpeedRange = new Vector2(0.1f, 3.0f);
+    
+    // 初期値の保存
+    private Vector3 _initialScale;
+    private float _initialCCHeight;
+    private float _initialCCCenterY;
+    
     // 一時停止管理
     private bool _isPaused = false;
     private static bool _globalPause = false; // 全エージェント共通の一時停止状態
@@ -145,6 +158,14 @@ public class BasketballAgentController : MonoBehaviour
         
         // チーム判定
         DetermineTeam();
+
+        // 高さ変化用の初期値記録（Transform と CharacterController）
+        _initialScale = transform.localScale;
+        if (_cc != null)
+        {
+            _initialCCHeight = _cc.height;
+            _initialCCCenterY = _cc.center.y;
+        }
 
         // 一時停止状態の初期化
         _isPaused = startPaused;
@@ -273,6 +294,18 @@ public class BasketballAgentController : MonoBehaviour
             _cc.enabled = true;
         }
 
+        // CourtManager のグローバル設定を反映
+        if (CourtManager.Instance != null && CourtManager.Instance.enableGlobalHeightSettings)
+        {
+            heightChangeSpeed = Mathf.Clamp(
+                CourtManager.Instance.globalHeightChangeSpeed,
+                heightChangeSpeedRange.x,
+                heightChangeSpeedRange.y
+            );
+        }
+
+        // 速度のキー入力調整は削除（インスペクター/グローバル設定からのみ変更）
+
         // 人間らしい行動パターン
         UpdateHumanBehavior();
 
@@ -335,6 +368,44 @@ public class BasketballAgentController : MonoBehaviour
         // 重力はオフ相当で地面に貼り付く
         Vector3 delta = _velocity * Time.deltaTime;
         _cc.Move(delta);
+
+        // 高さ変化の適用（移動処理後にスケールを更新）
+        if (enableHeightVariation)
+        {
+            ApplyHeightVariation();
+        }
+    }
+
+    private void ApplyHeightVariation()
+    {
+        // サイン波で 0.5 ～ 1.0 の係数を生成（初期値を上限とする）
+        float phase = Time.time * heightChangeSpeed + _agentId;
+        float factor = 0.75f + 0.25f * Mathf.Sin(phase);
+        factor = Mathf.Clamp(factor, 0.5f, 1.0f);
+
+        // 見た目のカプセルスケール更新（Y のみ変化）
+        Vector3 targetScale = new Vector3(_initialScale.x, _initialScale.y * factor, _initialScale.z);
+        transform.localScale = targetScale;
+
+        // CharacterController も同期（高さとセンターY を線形スケール）
+        if (_cc != null)
+        {
+            _cc.height = _initialCCHeight * factor;
+            Vector3 c = _cc.center;
+            c.y = _initialCCCenterY * factor;
+            _cc.center = c;
+        }
+    }
+
+    // 高さ変化速度の外部設定用API
+    public void SetHeightChangeSpeed(float newSpeed)
+    {
+        heightChangeSpeed = Mathf.Clamp(newSpeed, heightChangeSpeedRange.x, heightChangeSpeedRange.y);
+    }
+
+    public float GetHeightChangeSpeed()
+    {
+        return heightChangeSpeed;
     }
 
     private Vector3 ComputeWander()
