@@ -1,5 +1,6 @@
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class AutoSetup : MonoBehaviour
 {
@@ -23,6 +24,18 @@ public class AutoSetup : MonoBehaviour
     public bool setupFirstPersonCamera = true;
     public bool disableMainCamera = true;
 
+    [Header("Ball Pass Setup")]
+    public bool setupBallPass = true;
+    public BallPassController.PassTeam defaultPassTeam = BallPassController.PassTeam.White;
+
+    [Header("Rendering Settings")]
+    [Tooltip("リフレクションプローブ設定を一括調整する")]
+    public bool adjustReflectionProbes = true;
+    [Tooltip("Reflection Probes の使用モード（Off または Simple 推奨）")]
+    public ReflectionProbeUsage reflectionProbeUsage = ReflectionProbeUsage.Off;
+    [Tooltip("Anchor Override として使う Transform（任意）")]
+    public Transform reflectionProbeAnchorOverride;
+
     private void Start()
     {
         EnsureCourtManager();
@@ -30,6 +43,14 @@ public class AutoSetup : MonoBehaviour
         if (setupFirstPersonCamera)
         {
             SetupFirstPersonCamera();
+        }
+        if (setupBallPass)
+        {
+            SetupBallPass();
+        }
+        if (adjustReflectionProbes)
+        {
+            ApplyReflectionProbeSettings();
         }
     }
 
@@ -118,6 +139,49 @@ public class AutoSetup : MonoBehaviour
             {
                 mainCamera.enabled = false;
                 Debug.Log("AutoSetup: メインカメラを無効化しました");
+            }
+        }
+    }
+
+    private void SetupBallPass()
+    {
+        // ball を探してコントローラをアタッチ
+        GameObject ball = GameObject.Find("ball");
+        if (ball == null)
+        {
+            Debug.LogWarning("AutoSetup: ball が見つかりませんでした。");
+            return;
+        }
+
+        BallPassController ctrl = ball.GetComponent<BallPassController>();
+        if (ctrl == null)
+        {
+            ctrl = ball.AddComponent<BallPassController>();
+        }
+        ctrl.passTeam = defaultPassTeam;
+    }
+
+    private void ApplyReflectionProbeSettings()
+    {
+        // 対象: ball と 各エージェント（子も含む）
+        var targets = agentNames
+            .Select(GameObject.Find)
+            .Where(go => go != null)
+            .ToList();
+
+        var ball = GameObject.Find("ball");
+        if (ball != null) targets.Add(ball);
+
+        foreach (var root in targets)
+        {
+            var renderers = root.GetComponentsInChildren<MeshRenderer>(true);
+            foreach (var mr in renderers)
+            {
+                mr.reflectionProbeUsage = reflectionProbeUsage;
+                if (reflectionProbeAnchorOverride != null)
+                {
+                    mr.probeAnchor = reflectionProbeAnchorOverride;
+                }
             }
         }
     }

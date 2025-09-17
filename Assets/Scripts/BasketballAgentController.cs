@@ -330,11 +330,7 @@ public class BasketballAgentController : MonoBehaviour
         {
             desired = Vector3.ClampMagnitude(desired, maxSpeed * 0.5f);
             
-            // Capsule-w-1の場合のデバッグ
-            if (gameObject.name.Contains("Capsule-w-1"))
-            {
-                Debug.Log($"Capsule-w-1: 境界外のため移動を制限 - 位置: {transform.position}, 境界力: {boundaryForce.magnitude}");
-            }
+            // ログ出力は抑制
         }
         else
         {
@@ -582,11 +578,7 @@ public class BasketballAgentController : MonoBehaviour
             float forceStrength = Mathf.Min(boundaryPushStrength * boundaryForceMultiplier * maxPushDistance, maxBoundaryForce);
             push = push.normalized * forceStrength;
             
-            // デバッグログ（Capsule-w-1の場合のみ）
-            if (gameObject.name.Contains("Capsule-w-1"))
-            {
-                Debug.Log($"Capsule-w-1: 境界を超えています - 位置: {pos}, 予測位置: {pos + velocity.normalized * predictiveBoundaryDistance}, 境界距離: {maxPushDistance}, 押し戻し力: {forceStrength}");
-            }
+            // ログ出力は抑制
         }
         else
         {
@@ -907,6 +899,16 @@ public class BasketballAgentController : MonoBehaviour
         }
         
         Debug.Log($"全エージェントを {(_globalPause ? "一時停止" : "再開")} しました。");
+
+        // 再開時にパスも開始
+        if (!_globalPause)
+        {
+            var pass = FindObjectOfType<BallPassController>();
+            if (pass != null)
+            {
+                pass.StartPassingNow();
+            }
+        }
     }
     
     // 全エージェントの一時停止
@@ -935,6 +937,13 @@ public class BasketballAgentController : MonoBehaviour
         }
         
         Debug.Log("全エージェントを再開しました。");
+
+        // パスを開始
+        var pass = FindObjectOfType<BallPassController>();
+        if (pass != null)
+        {
+            pass.StartPassingNow();
+        }
     }
     
     // 一時停止
@@ -952,6 +961,13 @@ public class BasketballAgentController : MonoBehaviour
         _isPaused = false;
         _cc.enabled = true;
         Debug.Log($"{gameObject.name} を再開しました。");
+
+        // 個別再開時にもパスを開始
+        var pass = FindObjectOfType<BallPassController>();
+        if (pass != null)
+        {
+            pass.StartPassingNow();
+        }
     }
     
     // 一時停止状態の取得

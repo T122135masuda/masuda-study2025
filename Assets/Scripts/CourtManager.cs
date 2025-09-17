@@ -23,7 +23,7 @@ public class CourtManager : MonoBehaviour
     [Tooltip("全エージェントの高さ変化を有効にする")]
     public bool globalEnableHeightVariation = true;
     [Tooltip("全エージェントの高さ変化速度")]
-    public float globalHeightChangeSpeed = 0.5f;
+    public float globalHeightChangeSpeed = 2.0f;
     [Tooltip("全エージェント高さ速度の最小/最大範囲（参考）")]
     public Vector2 globalHeightSpeedRange = new Vector2(0.1f, 3.0f);
 
