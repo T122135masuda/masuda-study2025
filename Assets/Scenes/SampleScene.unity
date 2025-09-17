@@ -1464,7 +1464,7 @@ GameObject:
   - component: {fileID: 1786358403}
   - component: {fileID: 1786358402}
   m_Layer: 0
-  m_Name: Sphere
+  m_Name: ball
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1511,7 +1511,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: e3737060e7a115a4ab9e10ce23b0e9d9, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -1550,8 +1550,8 @@ Transform:
   m_GameObject: {fileID: 1786358401}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -3.02, y: 1.39, z: -2.96}
-  m_LocalScale: {x: 0.52773166, y: 0.52773166, z: 0.52773166}
+  m_LocalPosition: {x: -3.02, y: 1.275, z: -2.96}
+  m_LocalScale: {x: 0.37638876, y: 0.37638876, z: 0.37638876}
   m_ConstrainProportionsScale: 1
   m_Children: []
   m_Father: {fileID: 0}
@@ -2001,6 +2001,11 @@ MonoBehaviour:
   - Capsule-b-3
   setupFirstPersonCamera: 1
   disableMainCamera: 1
+  setupBallPass: 1
+  defaultPassTeam: 0
+  adjustReflectionProbes: 1
+  reflectionProbeUsage: 0
+  reflectionProbeAnchorOverride: {fileID: 0}
 --- !u!114 &2076372269
 MonoBehaviour:
   m_ObjectHideFlags: 0
