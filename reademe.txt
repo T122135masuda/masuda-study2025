@@ -37,7 +37,7 @@
     - SetGlobalHeightVariationEnabled(bool enabled)
 
 3) BasketballAgentController（エージェント挙動）
-- 目的: 各カプセルの移動/回避/隊列/一時停止/高さ変化を制御
+- 目的: 各カプセルの移動/回避/隊列/一時停止/高さ変化/パスカットを制御
 - 基本移動/回転:
   - maxSpeed, acceleration, turnSpeedDegPerSec
   - SpeedPreset: Slow/Normal/Fast/VeryFast（ApplySpeedPresetで一括反映）
@@ -53,33 +53,77 @@
   - predictiveBoundaryDistance による予測チェック（今の進む向きを少し先まで見て、外に出そうなら事前に弱く戻す）
   - zBoundaryExtraPadding により Z 方向に余裕（手前/奥方向だけ少し狭めて、外に出にくくする）
   - boundaryPushStrength, boundaryForceMultiplier, maxBoundaryForce で押し戻し力を制御
-  - Capsule-w-1 はデバッグログを追加出力
 - 壁回避:
   - 近傍点から法線方向に押し返し（壁にめり込まないように、壁から垂直に離れる力をかける）
-  - 壁タンジェント方向へスライド（初心者向け説明: 壁にぶつかったとき、壁に沿って横へ滑る。廊下の壁伝いに進むイメージ）
+  - 壁タンジェント方向へスライド（壁にぶつかったとき、壁に沿って横へ滑る）
   - 至近時は強制方向転換で脱出（壁にとても近いときは、無理やり向きを変えて抜け出す）
-- チーム行動:
+- チーム行動（混在促進）:
   - 名前からチーム判定（white/black/neutral）
-  - Cohesion（結束）: チーム中心へ引く（仲間の真ん中に寄りすぎず離れすぎず集まる）
-  - Formation（隊列）: 2.0〜4.0m を目安に距離調整（近すぎたら離れ、遠すぎたら近づいて程よい間隔を保つ）
-  - OpponentAvoidance（相手回避）
+  - disableTeamForces: チーム関連の力を無効化（デフォルト: true）
+  - TeamMixing（混在促進）: 相手チームに向かう軽い力で自然な混在を実現
+  - Cohesion（結束）: チーム中心へ引く（大幅に弱化）
+  - Formation（隊列）: 1.5〜5.0m を目安に距離調整（大幅に弱化）
+  - OpponentAvoidance（相手回避）: 大幅に弱化
+- パスカット機能:
+  - enablePassCut: パスカット機能の有効/無効
+  - passCutDetectionRadius: パスカットの検出距離（6.0m）
+  - passCutStrength: パスカットの強さ（3.0）
+  - passCutChance: パスカットの確率（0.3）
+  - ボールの動きを予測してパスの中間点に向かう
+  - 成功率に基づいてパスカットを実行
 - 人間らしさ:
   - アイドル（停止）: 固定ランダム/通常ランダム
-  - ランダム方向転換
-  - ダッシュ: 一定時間だけ速度倍率を適用
+  - ランダム方向転換（強化）
+  - ダッシュ: 一定時間だけ速度倍率を適用（強化）
 - 一時停止:
   - 個別 Pause/Resume/IsPaused
   - グローバル: ToggleGlobalPause（Enterキー）, PauseAll, ResumeAll
 - 高さ変化（見た目 + 当たり判定同期）:
   - enableHeightVariation: 高さ変化 ON/OFF
-  - サイン波で初期値の 50%〜100% にて localScale.y を変化（上限は初期値。背伸びはしない、最大は最初の背丈）
+  - サイン波で初期値の 50%〜100% にて localScale.y を変化（上限は初期値）
   - CharacterController.height と center.y を係数同期（見た目の高さに合わせて当たり判定の高さ・中心も一緒に変える）
   - 速度調整（個別/一括）:
     - 個別: heightChangeSpeed（範囲: heightChangeSpeedRange）
     - 一括: CourtManager.globalHeightChangeSpeed（enableGlobalHeightSettings が ON の場合、毎フレーム強制適用）
 
+4) BallPassController（ボールパス制御）
+- 目的: ボールのパス動作、速度制御、パス回数カウント、パス時の静止を制御
+- パス設定:
+  - passTeam: パスするチーム（White/Black）
+  - startCapsuleNumber: パス開始時の基準カプセル番号（デフォルト: 2）
+  - enablePrediction: 予測位置計算の有効/無効（デフォルト: false）
+  - enablePreciseLanding: 着地点の精度向上（デフォルト: true）
+  - passSpeed: ボールの移動速度（8.0m/s）
+  - arcHeight: パス時の放物線の高さ（0.7m）
+  - targetHeight: ターゲットの高さ（1.2m）
+- 速度制御:
+  - enableSpeedControl: 速度調整の有効/無効
+  - minSpeed/maxSpeed: 速度の範囲（2.0-15.0m/s）
+  - speedAcceleration: 速度変化の加速度（2.0m/s²）
+  - targetSpeed: 現在の目標速度
+  - speedPreset: 速度プリセット（VerySlow/Slow/Normal/Fast/VeryFast/Custom）
+  - キーボード制御: 1-5（プリセット）、+/-（微調整）、PageUp/Down（大幅調整）
+- パス回数カウント:
+  - enablePassCounter: パス回数カウントの有効/無効
+  - showPassCount: パス回数の画面表示
+  - passCountDisplayOffset: 表示位置のオフセット
+  - passCountFontSize: フォントサイズ
+  - キーボード制御: R（リセット）
+- パス時の静止:
+  - enablePassPause: パス時の静止機能の有効/無効
+  - passPauseDuration: パス時の静止時間（1.5秒）
+  - パス送り手と受け手が一時静止
+- 物理法則の維持:
+  - 速度変更時の進捗調整
+  - 実際の位置ベースの進捗計算
+  - 物理的に自然なパス動作
+- 公開API:
+  - SetTargetSpeed(float), SetSpeedPreset(SpeedPreset)
+  - GetTotalPassCount(), ResetPassCount()
+  - SetPassPauseEnabled(bool), SetPassPauseDuration(float)
+  - IsMoving(), GetCurrentTargetPosition(), GetCurrentSpeed()
 
-4) FirstPersonCamera（一人称カメラ）
+5) FirstPersonCamera（一人称カメラ）
 - 目的: VR を意識した一人称視点カメラ制御
 - カメラ設定:
   - fieldOfView, nearClipPlane, farClipPlane, Skybox, Forward Rendering
@@ -100,8 +144,9 @@
   - globalHeightChangeSpeed を希望値に設定
 - 個別エージェントの速度を使いたい場合は、enableGlobalHeightSettings を OFF にして
   - 各エージェントの heightChangeSpeed を設定
+- チーム混在を促進するため、disableTeamForces を true に設定（デフォルト）
+- パスカット機能は enablePassCut で制御可能
 - 実行中にスクリプトを編集した場合、再コンパイルで一部状態が初期化されるため、意図した設定にならない場合は再生を停止→再生し直してください。
-
 
 変数一覧と変更箇所（どこで変えられるか）
 
@@ -148,12 +193,19 @@
   - directionChangeChance (float) : 進行方向を変える傾向（確率）。インスペクターで変更
   - sprintChance (float) : ダッシュを始める傾向（確率）。インスペクターで変更
   - sprintMultiplier (float) : ダッシュ時の速度倍率。インスペクターで変更
-- Team Play（チーム行動）
-  - teamCohesionRadius (float) : 仲間の中心に寄る距離しきい値。インスペクターで変更
-  - teamCohesionStrength (float) : 中心に引かれる力の強さ。インスペクターで変更
-  - teamFormationStrength (float) : 間隔を2〜4mに保つ調整の強さ。インスペクターで変更
-  - opponentAvoidanceRadius (float) : 相手を避け始める距離。インスペクターで変更
-  - opponentAvoidanceStrength (float) : 相手から離れる力の強さ。インスペクターで変更
+- Team Play（チーム行動・混在促進）
+  - disableTeamForces (bool) : チーム関連の力を無効化（デフォルト: true）。インスペクターで変更
+  - teamMixingStrength (float) : チーム混在を促進する力（2.0）。インスペクターで変更
+  - teamCohesionRadius (float) : 仲間の中心に寄る距離しきい値（8.0m）。インスペクターで変更
+  - teamCohesionStrength (float) : 中心に引かれる力の強さ（0.2）。インスペクターで変更
+  - teamFormationStrength (float) : 間隔を1.5〜5.0mに保つ調整の強さ（0.1）。インスペクターで変更
+  - opponentAvoidanceRadius (float) : 相手を避け始める距離（1.2m）。インスペクターで変更
+  - opponentAvoidanceStrength (float) : 相手から離れる力の強さ（0.5）。インスペクターで変更
+- Pass Cut Behavior（パスカット機能）
+  - enablePassCut (bool) : パスカット機能の有効/無効（デフォルト: true）。インスペクターで変更
+  - passCutDetectionRadius (float) : パスカットの検出距離（6.0m）。インスペクターで変更
+  - passCutStrength (float) : パスカットの強さ（3.0）。インスペクターで変更
+  - passCutChance (float) : パスカットの確率（0.3）。インスペクターで変更
 - Research - Fixed Random（再現用）
   - seed (int) : 再現性のある乱数の基準。インスペクターで変更
   - useFixedRandom (bool) : 固定乱数を使うか。インスペクターで変更
@@ -167,10 +219,41 @@
   - heightChangeSpeed (float) : 高さの変化速度（サイン波の速さ）。インスペクター／APIで変更
   - heightChangeSpeedRange (Vector2) : 許容する最小/最大の速度。インスペクターで変更
 
-備考: CourtManager の enableGlobalHeightSettings が ON の場合、各エージェントの
-enableHeightVariation と heightChangeSpeed は CourtManager の設定で毎フレーム上書きされます。
+4) BallPassController（コンポーネント: Ball）
+- Pass Settings（パス設定）
+  - passTeam (enum) : パスするチーム（White/Black）。インスペクターで変更
+  - startCapsuleNumber (int) : パス開始時の基準カプセル番号（2）。インスペクターで変更
+  - enablePrediction (bool) : 予測位置計算の有効/無効（false）。インスペクターで変更
+  - enablePreciseLanding (bool) : 着地点の精度向上（true）。インスペクターで変更
+  - passSpeed (float) : ボールの移動速度（8.0m/s）。インスペクターで変更
+  - arcHeight (float) : パス時の放物線の高さ（0.7m）。インスペクターで変更
+  - targetHeight (float) : ターゲットの高さ（1.2m）。インスペクターで変更
+  - holdTimeAtReceiver (float) : 受け手に到達後に保持する時間（0.25秒）。インスペクターで変更
+  - minPassDistance (float) : 最小パス距離（0.5m）。インスペクターで変更
+  - refreshInterval (float) : ターゲット更新間隔（0.1秒）。インスペクターで変更
+  - autoStart (bool) : 自動開始（Play時に自動で開始）。インスペクターで変更
+- Speed Control（速度制御）
+  - enableSpeedControl (bool) : 速度調整の有効/無効（true）。インスペクターで変更
+  - minSpeed (float) : 最小速度（2.0m/s）。インスペクターで変更
+  - maxSpeed (float) : 最大速度（15.0m/s）。インスペクターで変更
+  - speedAcceleration (float) : 速度変化の加速度（2.0m/s²）。インスペクターで変更
+  - targetSpeed (float) : 現在の目標速度（8.0m/s）。インスペクターで変更
+  - speedPreset (enum) : 速度プリセット（Normal）。インスペクターで変更
+  - enableKeyboardControl (bool) : キーボード制御の有効/無効（true）。インスペクターで変更
+  - keyboardSpeedStep (float) : キーボード制御の速度ステップ（0.5m/s）。インスペクターで変更
+  - showSpeedInfo (bool) : 速度情報の画面表示（true）。インスペクターで変更
+- Pass Counter（パス回数カウント）
+  - enablePassCounter (bool) : パス回数カウントの有効/無効（true）。インスペクターで変更
+  - showPassCount (bool) : パス回数の画面表示（true）。インスペクターで変更
+  - passCountDisplayOffset (Vector2) : 表示位置のオフセット（10, 10）。インスペクターで変更
+  - passCountFontSize (int) : フォントサイズ（20）。インスペクターで変更
+- Pass Pause（パス時の静止）
+  - enablePassPause (bool) : パス時の静止機能の有効/無効（true）。インスペクターで変更
+  - passPauseDuration (float) : パス時の静止時間（1.5秒）。インスペクターで変更
+- Debug（デバッグ）
+  - enableDebugLogs (bool) : デバッグログの有効/無効（false）。インスペクターで変更
 
-4) FirstPersonCamera（コンポーネント: head-camera）
+5) FirstPersonCamera（コンポーネント: head-camera）
 - fieldOfView (float) : 視野角（広いほど周辺が見えるが歪みやすい）。インスペクター／APIで変更
 - nearClipPlane (float), farClipPlane (float) : 描画する手前/奥の距離。インスペクターで変更
 - mouseSensitivity (float) : マウスの向き変更の敏感さ。インスペクターで変更
@@ -180,3 +263,14 @@ enableHeightVariation と heightChangeSpeed は CourtManager の設定で毎フ�
 - enableVRMode (bool) : VR向けの投影/レンダリング設定を使うか。インスペクター／APIで変更
 - vrIPD (float) : 瞳孔間距離の想定（立体視の基準）。インスペクターで変更
 - enableStereoRendering (bool) : ステレオ描画を有効化するか。インスペクターで変更
+
+キーボード操作一覧
+- Enter: 全エージェントの一時停止/再開
+- 1-5: ボール速度プリセット（VerySlow/Slow/Normal/Fast/VeryFast）
+- +/-: ボール速度の微調整
+- PageUp/PageDown: ボール速度の大幅調整
+- R: パス回数のリセット
+- ESC: カーソルロックの切り替え（FirstPersonCamera）
+
+備考: CourtManager の enableGlobalHeightSettings が ON の場合、各エージェントの
+enableHeightVariation と heightChangeSpeed は CourtManager の設定で毎フレーム上書きされます。

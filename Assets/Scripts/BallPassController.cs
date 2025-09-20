@@ -750,6 +750,19 @@ public class BallPassController : MonoBehaviour
 		return passPauseDuration;
 	}
 
+	// ボールが動いているかどうかを取得
+	public bool IsMoving()
+	{
+		return _isMoving;
+	}
+
+	// 現在の目標位置を取得
+	public Vector3 GetCurrentTargetPosition()
+	{
+		return _endPos;
+	}
+
+
 	// パス位置を動的に更新するメソッド
 	private void UpdatePassPositions()
 	{

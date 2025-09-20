@@ -14,11 +14,11 @@ public class BasketballAgentController : MonoBehaviour
 
     [Header("Random Wander")]
     [Tooltip("ワンダーのランダム性")]
-    public float wanderJitter = 1.5f; // 1.2fから1.5fに向上
+    public float wanderJitter = 2.5f; // 大幅強化
     [Tooltip("ワンダー半径")]
-    public float wanderRadius = 3.0f; // 2.5fから3.0fに向上
+    public float wanderRadius = 4.0f; // 大幅拡大
     [Tooltip("ワンダー距離")]
-    public float wanderDistance = 2.5f; // 2.0fから2.5fに向上
+    public float wanderDistance = 3.5f; // 大幅拡大
 
     [Header("Separation / Avoidance")]
     [Tooltip("分離半径")]
@@ -56,25 +56,40 @@ public class BasketballAgentController : MonoBehaviour
     public float idleChance = 0.02f; // 停止する確率
     [Tooltip("方向転換する確率（0-1）")]
     [Range(0f, 0.2f)]
-    public float directionChangeChance = 0.08f; // 方向転換する確率
+    public float directionChangeChance = 0.15f; // 方向転換する確率（強化）
     [Tooltip("ダッシュする確率（0-1）")]
     [Range(0f, 0.3f)]
-    public float sprintChance = 0.15f; // ダッシュする確率
+    public float sprintChance = 0.20f; // ダッシュする確率（強化）
     [Tooltip("ダッシュ時の速度倍率")]
     [Range(1f, 3f)]
     public float sprintMultiplier = 1.8f; // ダッシュ時の速度倍率
 
     [Header("Team Play")]
     [Tooltip("チームメイトとの結束距離")]
-    public float teamCohesionRadius = 3.0f; // チームメイトとの結束距離
+    public float teamCohesionRadius = 8.0f; // チームメイトとの結束距離（大幅拡大）
     [Tooltip("チーム結束の強さ")]
-    public float teamCohesionStrength = 2.0f; // チーム結束の強さ
+    public float teamCohesionStrength = 0.2f; // チーム結束の強さ（大幅弱化）
     [Tooltip("フォーメーション維持の強さ")]
-    public float teamFormationStrength = 1.5f; // フォーメーション維持の強さ
+    public float teamFormationStrength = 0.1f; // フォーメーション維持の強さ（大幅弱化）
     [Tooltip("相手チーム回避距離")]
-    public float opponentAvoidanceRadius = 2.5f; // 相手チーム回避距離
+    public float opponentAvoidanceRadius = 1.2f; // 相手チーム回避距離（大幅縮小）
     [Tooltip("相手チーム回避の強さ")]
-    public float opponentAvoidanceStrength = 3.0f; // 相手チーム回避の強さ
+    public float opponentAvoidanceStrength = 0.5f; // 相手チーム回避の強さ（大幅弱化）
+    [Tooltip("チーム混在を促進する力")]
+    public float teamMixingStrength = 2.0f; // チーム混在を促進する力（強化）
+    [Tooltip("チーム関連の力を無効化する")]
+    public bool disableTeamForces = true; // チーム関連の力を無効化
+
+    [Header("Pass Cut Behavior")]
+    [Tooltip("パスカット機能を有効にする")]
+    public bool enablePassCut = true; // パスカット機能を有効にする
+    [Tooltip("パスカットの検出距離")]
+    public float passCutDetectionRadius = 6.0f; // パスカットの検出距離
+    [Tooltip("パスカットの強さ")]
+    public float passCutStrength = 3.0f; // パスカットの強さ
+    [Tooltip("パスカットの確率（0-1）")]
+    [Range(0f, 1f)]
+    public float passCutChance = 0.3f; // パスカットの確率
 
     [Header("Research - Fixed Random")]
     [Tooltip("研究用固定シード")]
@@ -335,9 +350,21 @@ public class BasketballAgentController : MonoBehaviour
         else
         {
             desired += ComputeWallAvoidance();
-            desired += ComputeTeamCohesion();
-            desired += ComputeTeamFormation();
-            desired += ComputeOpponentAvoidance();
+            
+            // チーム関連の力を条件付きで適用
+            if (!disableTeamForces)
+            {
+                desired += ComputeTeamCohesion();
+                desired += ComputeTeamFormation();
+                desired += ComputeOpponentAvoidance();
+            }
+            desired += ComputeTeamMixing(); // 混在促進は常に有効
+            
+            // パスカット機能
+            if (enablePassCut)
+            {
+                desired += ComputePassCut();
+            }
         }
 
         // ダッシュ中は速度を上げる（境界外の場合は制限）
@@ -676,12 +703,14 @@ public class BasketballAgentController : MonoBehaviour
             teamCenter /= teamCount;
             _teamCenter = teamCenter;
             
-            // チーム中心に向かう力
+            // チーム中心に向かう力（距離に応じて弱くなる）
             Vector3 toCenter = teamCenter - transform.position;
             float dist = toCenter.magnitude;
             if (dist > teamCohesionRadius)
             {
-                return toCenter.normalized * teamCohesionStrength;
+                // 距離が遠いほど弱い力
+                float strength = Mathf.Clamp01((dist - teamCohesionRadius) / teamCohesionRadius);
+                return toCenter.normalized * teamCohesionStrength * strength * 0.5f;
             }
         }
         
@@ -695,7 +724,7 @@ public class BasketballAgentController : MonoBehaviour
         Vector3 formationForce = Vector3.zero;
         int teamCount = 0;
         
-        // チームメイトとの適切な距離を保つ
+        // チームメイトとの適切な距離を保つ（より柔軟に）
         foreach (var other in CourtManager.Instance.agents)
         {
             if (other == null || other == this) continue;
@@ -704,14 +733,14 @@ public class BasketballAgentController : MonoBehaviour
                 Vector3 toOther = other.transform.position - transform.position;
                 float dist = toOther.magnitude;
                 
-                // 適切な距離（2.0-4.0）を保つ
-                if (dist < 2.0f)
+                // より広い適切な距離（1.5-5.0）を保つ
+                if (dist < 1.5f)
                 {
-                    formationForce += -toOther.normalized * (2.0f - dist);
+                    formationForce += -toOther.normalized * (1.5f - dist) * 0.5f;
                 }
-                else if (dist > 4.0f)
+                else if (dist > 5.0f)
                 {
-                    formationForce += toOther.normalized * (dist - 4.0f);
+                    formationForce += toOther.normalized * (dist - 5.0f) * 0.3f;
                 }
                 teamCount++;
             }
@@ -757,6 +786,99 @@ public class BasketballAgentController : MonoBehaviour
         }
         
         return avoidForce;
+    }
+
+    private Vector3 ComputeTeamMixing()
+    {
+        if (CourtManager.Instance == null || _teamType == "neutral") return Vector3.zero;
+        
+        Vector3 mixingForce = Vector3.zero;
+        int opponentCount = 0;
+        
+        // 相手チームのプレイヤーに向かう力（混在を強力に促進）
+        foreach (var other in CourtManager.Instance.agents)
+        {
+            if (other == null || other == this) continue;
+            if (other._teamType != _teamType && other._teamType != "neutral")
+            {
+                Vector3 toOpponent = other.transform.position - transform.position;
+                float dist = toOpponent.magnitude;
+                
+                // より広い距離範囲（2.0-8.0）で相手に向かう力
+                if (dist > 2.0f && dist < 8.0f)
+                {
+                    Vector3 towardOpponent = toOpponent.normalized;
+                    float strength = (dist - 2.0f) / 6.0f; // 距離に応じた強さ
+                    mixingForce += towardOpponent * strength * teamMixingStrength;
+                    opponentCount++;
+                }
+            }
+        }
+        
+        if (opponentCount > 0)
+        {
+            mixingForce /= opponentCount;
+        }
+        
+        return mixingForce;
+    }
+
+    private Vector3 ComputePassCut()
+    {
+        if (CourtManager.Instance == null) return Vector3.zero;
+        
+        // ボールを取得
+        var ball = FindObjectOfType<BallPassController>();
+        if (ball == null) return Vector3.zero;
+        
+        // ボールが動いていない場合はパスカットしない
+        if (!ball.IsMoving()) return Vector3.zero;
+        
+        // ボールの現在位置と目標位置を取得
+        Vector3 ballPos = ball.transform.position;
+        Vector3 ballTarget = ball.GetCurrentTargetPosition();
+        
+        // ボールの移動方向を計算
+        Vector3 ballDirection = (ballTarget - ballPos).normalized;
+        float ballDistance = Vector3.Distance(ballPos, ballTarget);
+        
+        // ボールの移動速度を推定
+        float ballSpeed = ball.GetCurrentSpeed();
+        float timeToTarget = ballDistance / ballSpeed;
+        
+        // パスカットの確率チェック
+        bool shouldAttemptCut = false;
+        if (useFixedRandom)
+        {
+            float cutCheck = Mathf.Sin(Time.time * 0.8f + _agentId * 0.3f) * 0.5f + 0.5f;
+            shouldAttemptCut = cutCheck < passCutChance;
+        }
+        else
+        {
+            shouldAttemptCut = Random.Range(0f, 1f) < passCutChance;
+        }
+        
+        if (!shouldAttemptCut) return Vector3.zero;
+        
+        // パスカット可能な位置を計算
+        Vector3 cutPosition = ballPos + ballDirection * (ballDistance * 0.5f); // パスの中間点
+        Vector3 toCutPosition = cutPosition - transform.position;
+        float distanceToCut = toCutPosition.magnitude;
+        
+        // パスカット可能な距離内かチェック
+        if (distanceToCut > passCutDetectionRadius) return Vector3.zero;
+        
+        // パスカットの成功率を計算（距離と時間に基づく）
+        float timeToCut = distanceToCut / maxSpeed;
+        float cutSuccess = Mathf.Clamp01(1.0f - (timeToCut / timeToTarget));
+        
+        // 成功率が低い場合はパスカットしない
+        if (cutSuccess < 0.3f) return Vector3.zero;
+        
+        // パスカット方向への力を計算
+        Vector3 cutForce = toCutPosition.normalized * passCutStrength * cutSuccess;
+        
+        return cutForce;
     }
 
     private void UpdateHumanBehavior()
