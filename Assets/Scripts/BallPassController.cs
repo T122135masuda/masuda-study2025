@@ -12,8 +12,19 @@ public class BallPassController : MonoBehaviour
 	[Header("Pass Settings")]
 	[Tooltip("どのチーム同士でパスするか（White/Black）")]
 	public PassTeam passTeam = PassTeam.White;
+	[Tooltip("パス開始時の基準カプセル番号（1, 2, 3など）")]
+	public int startCapsuleNumber = 2;
+	[Tooltip("予測位置計算を有効にする（無効にすると直線的なパスになる）")]
+	public bool enablePrediction = false;
+	[Tooltip("着地点の精度を向上させる（カプセルの中心を正確に計算）")]
+	public bool enablePreciseLanding = true;
+	[Tooltip("パス時の静止機能を有効にする")]
+	public bool enablePassPause = true;
+	[Tooltip("パス時の静止時間（秒）")]
+	[Range(0.1f, 3.0f)]
+	public float passPauseDuration = 1.5f;
 	[Tooltip("ボールの移動速度（m/s）")]
-	public float passSpeed = 6.0f;
+	public float passSpeed = 8.0f;
 	[Tooltip("受け手に到達後に保持する時間（秒）")]
 	public float holdTimeAtReceiver = 0.25f;
 	[Tooltip("パス時の放物線の高さ（m）")]
@@ -23,9 +34,52 @@ public class BallPassController : MonoBehaviour
 	[Tooltip("最小パス距離（近すぎる相手はスキップ）")]
 	public float minPassDistance = 0.5f;
 	[Tooltip("ターゲット更新間隔（秒）")]
-	public float refreshInterval = 0.2f;
+	public float refreshInterval = 0.1f;
 	[Tooltip("自動開始（Play時に自動で開始）")]
 	public bool autoStart = false;
+
+	[Header("Speed Control")]
+	[Tooltip("速度調整の有効/無効")]
+	public bool enableSpeedControl = true;
+	[Tooltip("最小速度（m/s）")]
+	[Range(1f, 20f)]
+	public float minSpeed = 2.0f;
+	[Tooltip("最大速度（m/s）")]
+	[Range(1f, 30f)]
+	public float maxSpeed = 15.0f;
+	[Tooltip("速度変化の加速度（m/s²）")]
+	[Range(0.1f, 10f)]
+	public float speedAcceleration = 2.0f;
+	[Tooltip("現在の目標速度")]
+	[Range(1f, 30f)]
+	public float targetSpeed = 8.0f;
+	[Tooltip("速度プリセット")]
+	public SpeedPreset speedPreset = SpeedPreset.Normal;
+	[Tooltip("キーボードで速度調整を有効にする")]
+	public bool enableKeyboardControl = true;
+	[Tooltip("キーボード速度調整の刻み値")]
+	[Range(0.1f, 2f)]
+	public float keyboardSpeedStep = 1.0f;
+
+	public enum SpeedPreset
+	{
+		VerySlow = 0,
+		Slow = 1,
+		Normal = 2,
+		Fast = 3,
+		VeryFast = 4,
+		Custom = 5
+	}
+
+	[Header("Pass Counter")]
+	[Tooltip("パス回数カウント機能の有効/無効")]
+	public bool enablePassCounter = true;
+	[Tooltip("パス回数を画面に表示する")]
+	public bool showPassCount = true;
+	[Tooltip("パス回数表示位置（画面左上からのオフセット）")]
+	public Vector2 passCountDisplayOffset = new Vector2(10, 220);
+	[Tooltip("パス回数表示のサイズ")]
+	public int passCountFontSize = 16;
 
 	[Header("Debug")]
 	public bool enableDebugLogs = false;
@@ -33,6 +87,8 @@ public class BallPassController : MonoBehaviour
 	public bool logMovement = false;
 	[Tooltip("移動ログの出力間隔（秒）")]
 	public float movementLogInterval = 0.5f;
+	[Tooltip("速度情報を画面に表示する")]
+	public bool showSpeedInfo = true;
 
 	private float _movementLogTimer = 0f;
 	private Vector3 _lastLoggedPos;
@@ -49,9 +105,24 @@ public class BallPassController : MonoBehaviour
 	private float _travelDistance;
 	private float _passT = 0f; // 0→1 の進捗
 	private bool _waitingForStart = true; // 外部トリガー待機
+	
+	// パス回数カウント用
+	private int _totalPassCount = 0; // 総パス回数
+	private int _currentSessionPassCount = 0; // 現在のセッションのパス回数
+
+	private void Awake()
+	{
+		// パス回数を確実に0に初期化
+		_totalPassCount = 0;
+		_currentSessionPassCount = 0;
+	}
 
 	private void Start()
 	{
+		// パス回数を0に初期化
+		_totalPassCount = 0;
+		_currentSessionPassCount = 0;
+
 		// ball を名前で取得（大文字小文字や部分一致にもある程度対応）
 		var ballGo = GameObject.Find("ball");
 		if (ballGo == null)
@@ -84,6 +155,7 @@ public class BallPassController : MonoBehaviour
 		if (enableDebugLogs)
 		{
 			Debug.Log($"BallPassController: teammates={_teammates.Count}, team={passTeam}");
+			Debug.Log($"BallPassController: パス回数初期化完了 (総:{_totalPassCount}, セッション:{_currentSessionPassCount})");
 		}
 		_waitingForStart = !autoStart;
 		if (autoStart && _teammates.Count >= 2)
@@ -99,6 +171,12 @@ public class BallPassController : MonoBehaviour
 
 	private void Update()
 	{
+		// 速度調整の処理
+		if (enableSpeedControl)
+		{
+			UpdateSpeedControl();
+		}
+
 		_refreshTimer -= Time.deltaTime;
 		if (_refreshTimer <= 0f)
 		{
@@ -119,10 +197,15 @@ public class BallPassController : MonoBehaviour
 
 		if (_isMoving)
 		{
+			// パス位置を定期的に更新（カプセルの動きに対応）
+			UpdatePassPositions();
+			
 			// 進捗ベースで移動（速度 → 時間あたりの進捗量に変換）
 			float deltaT = _travelDistance > 0.0001f ? (passSpeed / _travelDistance) * Time.deltaTime : 1f * Time.deltaTime;
 			_passT = Mathf.Min(1f, _passT + deltaT);
 			Vector3 pos = Vector3.Lerp(_startPos, _endPos, _passT);
+			
+			// 放物線の高さを計算（固定値を使用）
 			float heightOffset = Mathf.Sin(_passT * Mathf.PI) * arcHeight;
 			pos.y += heightOffset;
 			MoveBall(pos);
@@ -132,6 +215,21 @@ public class BallPassController : MonoBehaviour
 			{
 				_isMoving = false;
 				_holdTimer = holdTimeAtReceiver;
+				
+				// パス時の静止機能（受け手を静止させる）
+				if (enablePassPause && _teammates.Count > _currentIndex)
+				{
+					var toAgent = _teammates[_currentIndex].GetComponent<BasketballAgentController>();
+					if (toAgent != null)
+					{
+						toAgent.SetIdleState(true, passPauseDuration);
+						if (enableDebugLogs)
+						{
+							Debug.Log($"BallPassController: {_teammates[_currentIndex].name} を {passPauseDuration}秒間静止");
+						}
+					}
+				}
+				
 				if (enableDebugLogs)
 				{
 					Debug.Log($"BallPassController: arrived receiver index={_currentIndex}, pos={_ball.position}");
@@ -204,12 +302,39 @@ public class BallPassController : MonoBehaviour
 			MoveBall(fromPos);
 		}
 
+		// パス時の静止機能
+		if (enablePassPause)
+		{
+			// 送り手を静止させる
+			var fromAgent = from.GetComponent<BasketballAgentController>();
+			if (fromAgent != null)
+			{
+				fromAgent.SetIdleState(true, passPauseDuration);
+				if (enableDebugLogs)
+				{
+					Debug.Log($"BallPassController: {from.name} を {passPauseDuration}秒間静止");
+				}
+			}
+		}
+
 		_startPos = fromPos;
 		_endPos = toPos;
 		_travelDistance = Vector3.Distance(_startPos, _endPos);
 		_passT = 0f;
 		_isMoving = true;
 		_currentIndex = nextIndex;
+		
+		// パス回数をカウント
+		if (enablePassCounter)
+		{
+			_totalPassCount++;
+			_currentSessionPassCount++;
+			if (enableDebugLogs)
+			{
+				Debug.Log($"BallPassController: Pass #{_totalPassCount} started from {from.name} to {to.name}");
+			}
+		}
+		
 		if (enableDebugLogs)
 		{
 			Debug.Log($"BallPassController: pass {_startPos} -> {_endPos}, dist={_travelDistance}");
@@ -232,8 +357,43 @@ public class BallPassController : MonoBehaviour
 	{
 		RefreshTeammates();
 		_waitingForStart = false;
+		
+		// 既にパスが進行中の場合は新しいパスを開始しない
+		if (_isMoving)
+		{
+			if (enableDebugLogs)
+			{
+				Debug.Log("BallPassController: 既にパスが進行中のため、新しいパスを開始しません");
+			}
+			return;
+		}
+		
 		_holdTimer = 0f;
 		BeginNextPass();
+	}
+
+	// 一時停止用API（パス回数をカウントしない）
+	public void ResumePassing()
+	{
+		RefreshTeammates();
+		_waitingForStart = false;
+		
+		// 既にパスが進行中の場合は何もしない
+		if (_isMoving)
+		{
+			if (enableDebugLogs)
+			{
+				Debug.Log("BallPassController: 既にパスが進行中のため、再開処理をスキップします");
+			}
+			return;
+		}
+		
+		// 待機中の場合のみ次のパスを開始
+		if (_holdTimer > 0f)
+		{
+			_holdTimer = 0f;
+			BeginNextPass();
+		}
 	}
 
 	private void SnapBallToTeamAnchor()
@@ -241,7 +401,9 @@ public class BallPassController : MonoBehaviour
 		if (_ball == null) return;
 		RefreshTeammates();
 		Transform anchor = null;
-		string anchorName = passTeam == PassTeam.White ? "capsule-w-1" : "capsule-b-1";
+		string teamPrefix = passTeam == PassTeam.White ? "capsule-w" : "capsule-b";
+		string anchorName = $"{teamPrefix}-{startCapsuleNumber}";
+		
 		for (int i = 0; i < _teammates.Count; i++)
 		{
 			if (_teammates[i].name.ToLower().Contains(anchorName))
@@ -251,21 +413,61 @@ public class BallPassController : MonoBehaviour
 				break;
 			}
 		}
+		
+		// 指定されたカプセルが見つからない場合は、最初のカプセルを使用
 		if (anchor == null && _teammates.Count > 0)
 		{
 			anchor = _teammates[0];
 			_currentIndex = 0;
+			if (enableDebugLogs)
+			{
+				Debug.LogWarning($"BallPassController: {anchorName} が見つかりません。{anchor.name} を使用します。");
+			}
 		}
+		
 		if (anchor != null)
 		{
 			MoveBall(GetTargetPosition(anchor));
+			if (enableDebugLogs)
+			{
+				Debug.Log($"BallPassController: パス開始位置を {anchor.name} に設定しました");
+			}
 		}
 	}
 
 	private Vector3 GetTargetPosition(Transform agent)
 	{
 		Vector3 pos = agent.position;
+		var agentController = agent.GetComponent<BasketballAgentController>();
+		
+		// 予測位置計算（オプション）
+		if (enablePrediction && agentController != null)
+		{
+			// エージェントの移動速度を予測に使用
+			Vector3 velocity = agentController.GetCurrentVelocity();
+			if (velocity.magnitude > 0.1f)
+			{
+				// パス速度に応じた予測時間を計算
+				float predictionTime = 0.15f; // 0.15秒先を予測
+				pos += velocity * predictionTime;
+			}
+		}
+		
+		// 着地点の精度を向上させる
+		if (enablePreciseLanding && agentController != null)
+		{
+			// CharacterControllerの中心位置を考慮
+			var cc = agent.GetComponent<CharacterController>();
+			if (cc != null)
+			{
+				// CharacterControllerの中心位置を基準にする
+				pos = agent.position + cc.center;
+			}
+		}
+		
+		// 着地点の高さを設定
 		pos.y += targetHeight;
+		
 		return pos;
 	}
 
@@ -300,6 +502,318 @@ public class BallPassController : MonoBehaviour
 	{
 		passTeam = team;
 		RefreshTeammates();
+	}
+
+	// 速度調整の更新処理
+	private void UpdateSpeedControl()
+	{
+		// キーボード入力による速度調整
+		if (enableKeyboardControl)
+		{
+			HandleKeyboardInput();
+		}
+
+		// プリセットが変更された場合は適用
+		ApplySpeedPreset();
+		
+		// 目標速度に向かって現在の速度を調整
+		if (Mathf.Abs(passSpeed - targetSpeed) > 0.1f)
+		{
+			float direction = targetSpeed > passSpeed ? 1f : -1f;
+			float oldSpeed = passSpeed;
+			passSpeed += direction * speedAcceleration * Time.deltaTime;
+			passSpeed = Mathf.Clamp(passSpeed, minSpeed, maxSpeed);
+			
+			// 速度変更時にパス位置を更新
+			if (_isMoving)
+			{
+				// 速度が大きく変わった場合は進捗を調整
+				if (Mathf.Abs(passSpeed - oldSpeed) > 0.5f)
+				{
+					// 現在のボール位置から実際の進捗を再計算
+					if (_travelDistance > 0.0001f)
+					{
+						float actualProgress = Vector3.Distance(_ball.position, _startPos) / _travelDistance;
+						_passT = Mathf.Clamp(actualProgress, 0f, 1f);
+					}
+				}
+				UpdatePassPositions();
+			}
+		}
+	}
+
+	// キーボード入力の処理
+	private void HandleKeyboardInput()
+	{
+		// 数字キーでプリセット選択
+		if (Input.GetKeyDown(KeyCode.Alpha1)) SetSpeedPreset(SpeedPreset.VerySlow);
+		if (Input.GetKeyDown(KeyCode.Alpha2)) SetSpeedPreset(SpeedPreset.Slow);
+		if (Input.GetKeyDown(KeyCode.Alpha3)) SetSpeedPreset(SpeedPreset.Normal);
+		if (Input.GetKeyDown(KeyCode.Alpha4)) SetSpeedPreset(SpeedPreset.Fast);
+		if (Input.GetKeyDown(KeyCode.Alpha5)) SetSpeedPreset(SpeedPreset.VeryFast);
+
+		// +/-キーで細かい調整
+		if (Input.GetKey(KeyCode.Plus) || Input.GetKey(KeyCode.KeypadPlus))
+		{
+			SetTargetSpeed(targetSpeed + keyboardSpeedStep * Time.deltaTime);
+		}
+		if (Input.GetKey(KeyCode.Minus) || Input.GetKey(KeyCode.KeypadMinus))
+		{
+			SetTargetSpeed(targetSpeed - keyboardSpeedStep * Time.deltaTime);
+		}
+
+		// PageUp/PageDownで大きな調整
+		if (Input.GetKeyDown(KeyCode.PageUp))
+		{
+			SetTargetSpeed(targetSpeed + keyboardSpeedStep * 3f);
+		}
+		if (Input.GetKeyDown(KeyCode.PageDown))
+		{
+			SetTargetSpeed(targetSpeed - keyboardSpeedStep * 3f);
+		}
+
+		// Rキーでパス回数をリセット
+		if (Input.GetKeyDown(KeyCode.R) && enablePassCounter)
+		{
+			ResetPassCount();
+		}
+	}
+
+	// 速度プリセットの適用
+	private void ApplySpeedPreset()
+	{
+		switch (speedPreset)
+		{
+			case SpeedPreset.VerySlow:
+				targetSpeed = 3.0f;
+				break;
+			case SpeedPreset.Slow:
+				targetSpeed = 5.0f;
+				break;
+			case SpeedPreset.Normal:
+				targetSpeed = 8.0f;
+				break;
+			case SpeedPreset.Fast:
+				targetSpeed = 12.0f;
+				break;
+			case SpeedPreset.VeryFast:
+				targetSpeed = 18.0f;
+				break;
+			case SpeedPreset.Custom:
+				// カスタムの場合はtargetSpeedをそのまま使用
+				break;
+		}
+	}
+
+	// 外部から速度を設定するAPI
+	public void SetTargetSpeed(float speed)
+	{
+		targetSpeed = Mathf.Clamp(speed, minSpeed, maxSpeed);
+		speedPreset = SpeedPreset.Custom;
+	}
+
+	// 外部から速度プリセットを設定するAPI
+	public void SetSpeedPreset(SpeedPreset preset)
+	{
+		speedPreset = preset;
+		ApplySpeedPreset();
+	}
+
+	// 現在の速度を取得するAPI
+	public float GetCurrentSpeed()
+	{
+		return passSpeed;
+	}
+
+	// 目標速度を取得するAPI
+	public float GetTargetSpeed()
+	{
+		return targetSpeed;
+	}
+
+	// パス回数関連のAPI
+	public int GetTotalPassCount()
+	{
+		return _totalPassCount;
+	}
+
+	public int GetCurrentSessionPassCount()
+	{
+		return _currentSessionPassCount;
+	}
+
+	public void ResetPassCount()
+	{
+		_totalPassCount = 0;
+		_currentSessionPassCount = 0;
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: パス回数をリセットしました (総:{_totalPassCount}, セッション:{_currentSessionPassCount})");
+		}
+	}
+
+	public void ResetCurrentSessionPassCount()
+	{
+		_currentSessionPassCount = 0;
+		if (enableDebugLogs)
+		{
+			Debug.Log("BallPassController: セッション内パス回数をリセットしました");
+		}
+	}
+
+	public void SetPassCounterEnabled(bool enabled)
+	{
+		enablePassCounter = enabled;
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: パスカウンターを{(enabled ? "有効" : "無効")}にしました");
+		}
+	}
+
+	// 開始カプセル番号を設定するAPI
+	public void SetStartCapsuleNumber(int capsuleNumber)
+	{
+		startCapsuleNumber = Mathf.Max(1, capsuleNumber);
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: 開始カプセル番号を {startCapsuleNumber} に設定しました");
+		}
+	}
+
+	// 開始カプセル番号を取得するAPI
+	public int GetStartCapsuleNumber()
+	{
+		return startCapsuleNumber;
+	}
+
+	// 予測機能のオンオフを設定するAPI
+	public void SetPredictionEnabled(bool enabled)
+	{
+		enablePrediction = enabled;
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: 予測機能を{(enabled ? "有効" : "無効")}にしました");
+		}
+	}
+
+	// 予測機能の状態を取得するAPI
+	public bool IsPredictionEnabled()
+	{
+		return enablePrediction;
+	}
+
+	// 着地点精度設定のAPI
+	public void SetPreciseLandingEnabled(bool enabled)
+	{
+		enablePreciseLanding = enabled;
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: 着地点精度を{(enabled ? "有効" : "無効")}にしました");
+		}
+	}
+
+	// 着地点精度の状態を取得するAPI
+	public bool IsPreciseLandingEnabled()
+	{
+		return enablePreciseLanding;
+	}
+
+	// パス時の静止機能の設定API
+	public void SetPassPauseEnabled(bool enabled)
+	{
+		enablePassPause = enabled;
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: パス時の静止機能を{(enabled ? "有効" : "無効")}にしました");
+		}
+	}
+
+	// パス時の静止時間を設定するAPI
+	public void SetPassPauseDuration(float duration)
+	{
+		passPauseDuration = Mathf.Clamp(duration, 0.1f, 2.0f);
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: パス時の静止時間を {passPauseDuration}秒 に設定しました");
+		}
+	}
+
+	// パス時の静止機能の状態を取得するAPI
+	public bool IsPassPauseEnabled()
+	{
+		return enablePassPause;
+	}
+
+	// パス時の静止時間を取得するAPI
+	public float GetPassPauseDuration()
+	{
+		return passPauseDuration;
+	}
+
+	// パス位置を動的に更新するメソッド
+	private void UpdatePassPositions()
+	{
+		if (_teammates.Count < 2) return;
+
+		// 現在の送り手と受け手の位置を再計算
+		Transform from = _teammates[_currentIndex];
+		Transform to = _teammates[(_currentIndex + 1) % _teammates.Count];
+
+		Vector3 newFromPos = GetTargetPosition(from);
+		Vector3 newToPos = GetTargetPosition(to);
+
+		// 終了位置を常に更新（受け手の動きに対応）
+		_endPos = newToPos;
+		
+		// 開始位置はパスの進捗に応じて更新
+		if (_passT < 0.1f) // パス開始直後は開始位置も更新
+		{
+			_startPos = newFromPos;
+		}
+
+		_travelDistance = Vector3.Distance(_startPos, _endPos);
+
+		if (enableDebugLogs && _travelDistance > 0.1f)
+		{
+			Debug.Log($"BallPassController: パス位置を更新 - 進捗:{_passT:F2}, 開始:{_startPos}, 終了:{_endPos}, 距離:{_travelDistance:F2}");
+		}
+	}
+
+	// 速度情報とパス回数を画面に表示
+	private void OnGUI()
+	{
+		// 速度情報の表示
+		if (showSpeedInfo)
+		{
+			GUILayout.BeginArea(new Rect(10, 10, 300, 200));
+			GUILayout.Label("=== ボール速度調整 ===", GUI.skin.box);
+			GUILayout.Label($"現在の速度: {passSpeed:F1} m/s");
+			GUILayout.Label($"目標速度: {targetSpeed:F1} m/s");
+			GUILayout.Label($"プリセット: {speedPreset}");
+			GUILayout.Space(10);
+			GUILayout.Label("キーボード操作:");
+			GUILayout.Label("1-5: プリセット選択");
+			GUILayout.Label("+/-: 細かい調整");
+			GUILayout.Label("PageUp/Down: 大きな調整");
+			GUILayout.EndArea();
+		}
+
+		// パス回数の表示
+		if (enablePassCounter && showPassCount)
+		{
+			// フォントサイズを設定
+			GUIStyle style = new GUIStyle(GUI.skin.label);
+			style.fontSize = passCountFontSize;
+			style.normal.textColor = Color.white;
+			
+			GUILayout.BeginArea(new Rect(passCountDisplayOffset.x, passCountDisplayOffset.y, 300, 100));
+			GUILayout.Label("=== パス回数 ===", GUI.skin.box);
+			GUILayout.Label($"総パス回数: {_totalPassCount}", style);
+			GUILayout.Label($"セッション内: {_currentSessionPassCount}", style);
+			GUILayout.Space(5);
+			GUILayout.Label("Rキー: リセット");
+			GUILayout.EndArea();
+		}
 	}
 }
 

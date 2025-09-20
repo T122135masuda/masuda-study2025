@@ -785,24 +785,24 @@ public class BasketballAgentController : MonoBehaviour
         }
         else
         {
-            // ランダムに停止（固定ランダム）
-            if (useFixedRandom)
+        // ランダムに停止（固定ランダム）
+        if (useFixedRandom)
+        {
+            float idleCheck = Mathf.Sin(Time.time * 0.5f + _agentId * 0.5f) * 0.5f + 0.5f;
+            if (idleCheck < idleChance)
             {
-                float idleCheck = Mathf.Sin(Time.time * 0.5f + _agentId * 0.5f) * 0.5f + 0.5f;
-                if (idleCheck < idleChance)
-                {
-                    _isIdle = true;
-                    _idleTimer = 1f + _agentId * 0.3f; // エージェントごとに異なる停止時間
-                }
+                _isIdle = true;
+                _idleTimer = 1f + _agentId * 0.3f; // エージェントごとに異なる停止時間
             }
-            else
+        }
+        else
+        {
+            if (Random.Range(0f, 1f) < idleChance * Time.deltaTime)
             {
-                if (Random.Range(0f, 1f) < idleChance * Time.deltaTime)
-                {
-                    _isIdle = true;
-                    _idleTimer = Random.Range(1f, 3f);
-                }
+                _isIdle = true;
+                _idleTimer = Random.Range(1f, 3f);
             }
+        }
         }
 
         // 方向転換
@@ -900,13 +900,13 @@ public class BasketballAgentController : MonoBehaviour
         
         Debug.Log($"全エージェントを {(_globalPause ? "一時停止" : "再開")} しました。");
 
-        // 再開時にパスも開始
+        // 再開時にパスも開始（パス回数をカウントしない）
         if (!_globalPause)
         {
             var pass = FindObjectOfType<BallPassController>();
             if (pass != null)
             {
-                pass.StartPassingNow();
+                pass.ResumePassing();
             }
         }
     }
@@ -938,11 +938,11 @@ public class BasketballAgentController : MonoBehaviour
         
         Debug.Log("全エージェントを再開しました。");
 
-        // パスを開始
+        // パスを開始（パス回数をカウントしない）
         var pass = FindObjectOfType<BallPassController>();
         if (pass != null)
         {
-            pass.StartPassingNow();
+            pass.ResumePassing();
         }
     }
     
@@ -962,11 +962,11 @@ public class BasketballAgentController : MonoBehaviour
         _cc.enabled = true;
         Debug.Log($"{gameObject.name} を再開しました。");
 
-        // 個別再開時にもパスを開始
+        // 個別再開時にもパスを開始（パス回数をカウントしない）
         var pass = FindObjectOfType<BallPassController>();
         if (pass != null)
         {
-            pass.StartPassingNow();
+            pass.ResumePassing();
         }
     }
     
@@ -975,6 +975,41 @@ public class BasketballAgentController : MonoBehaviour
     {
         return _isPaused;
     }
+    
+    // 現在の速度を取得（ボールの予測位置計算用）
+    public Vector3 GetCurrentVelocity()
+    {
+        return _velocity;
+    }
+    
+    // 現在の高さ変化係数を取得（ボールの着地点計算用）
+    public float GetCurrentHeightFactor()
+    {
+        if (!enableHeightVariation)
+        {
+            return 1.0f;
+        }
+        
+        // サイン波で 0.5 ～ 1.0 の係数を生成（初期値を上限とする）
+        float phase = Time.time * heightChangeSpeed + _agentId;
+        float factor = 0.75f + 0.25f * Mathf.Sin(phase);
+        return Mathf.Clamp(factor, 0.5f, 1.0f);
+    }
+
+    // 静止状態を強制的に設定（ボールパス用）
+    public void SetIdleState(bool idle, float duration = -1f)
+    {
+        _isIdle = idle;
+        if (idle && duration > 0f)
+        {
+            _idleTimer = duration;
+        }
+        else if (!idle)
+        {
+            _idleTimer = 0f;
+        }
+    }
+
 }
 
 
