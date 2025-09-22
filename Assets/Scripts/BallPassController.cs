@@ -24,7 +24,7 @@ public class BallPassController : MonoBehaviour
 	[Range(0.1f, 3.0f)]
 	public float passPauseDuration = 1.5f;
 	[Tooltip("ボールの移動速度（m/s）")]
-	public float passSpeed = 8.0f;
+	public float passSpeed = 4.0f;
 	[Tooltip("受け手に到達後に保持する時間（秒）")]
 	public float holdTimeAtReceiver = 0.25f;
 	[Tooltip("パス時の放物線の高さ（m）")]
@@ -42,17 +42,17 @@ public class BallPassController : MonoBehaviour
 	[Tooltip("速度調整の有効/無効")]
 	public bool enableSpeedControl = true;
 	[Tooltip("最小速度（m/s）")]
-	[Range(1f, 20f)]
-	public float minSpeed = 2.0f;
+	[Range(0.5f, 20f)]
+	public float minSpeed = 0.5f;
 	[Tooltip("最大速度（m/s）")]
 	[Range(1f, 30f)]
-	public float maxSpeed = 15.0f;
+	public float maxSpeed = 12.0f;
 	[Tooltip("速度変化の加速度（m/s²）")]
 	[Range(0.1f, 10f)]
 	public float speedAcceleration = 2.0f;
 	[Tooltip("現在の目標速度")]
 	[Range(1f, 30f)]
-	public float targetSpeed = 8.0f;
+	public float targetSpeed = 4.0f;
 	[Tooltip("速度プリセット")]
 	public SpeedPreset speedPreset = SpeedPreset.Normal;
 	[Tooltip("キーボードで速度調整を有効にする")]
@@ -479,6 +479,13 @@ public class BallPassController : MonoBehaviour
 		{
 			if (agent == null) continue;
 			string name = agent.gameObject.name.ToLower();
+			
+			// HumanM_Modelはパスに参加させない
+			if (name.Contains("humanm_model"))
+			{
+				continue;
+			}
+			
 			bool isWhite = name.Contains("capsule-w");
 			bool isBlack = name.Contains("capsule-b");
 			if (passTeam == PassTeam.White && isWhite)
@@ -585,19 +592,19 @@ public class BallPassController : MonoBehaviour
 		switch (speedPreset)
 		{
 			case SpeedPreset.VerySlow:
-				targetSpeed = 3.0f;
+				targetSpeed = 1.5f;
 				break;
 			case SpeedPreset.Slow:
-				targetSpeed = 5.0f;
+				targetSpeed = 2.5f;
 				break;
 			case SpeedPreset.Normal:
-				targetSpeed = 8.0f;
+				targetSpeed = 4.0f;
 				break;
 			case SpeedPreset.Fast:
-				targetSpeed = 12.0f;
+				targetSpeed = 6.0f;
 				break;
 			case SpeedPreset.VeryFast:
-				targetSpeed = 18.0f;
+				targetSpeed = 8.0f;
 				break;
 			case SpeedPreset.Custom:
 				// カスタムの場合はtargetSpeedをそのまま使用
