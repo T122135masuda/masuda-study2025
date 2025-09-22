@@ -11,6 +11,7 @@
   - Rigidbody がある場合は isKinematic = true, useGravity = false
   - "head-camera" を探し、FirstPersonCamera と Camera を付与（なければ警告）
   - 既存 Main Camera を無効化（オプション: disableMainCamera）
+  - HumanM_Model に Animator コンポーネントを自動付与（Legacyアニメーションエラー回避のため）
 
 2) CourtManager（コート管理・一括設定）
 - 目的: コート境界/壁/エージェントの管理と高さ変化の一括設定
@@ -123,7 +124,24 @@
   - SetPassPauseEnabled(bool), SetPassPauseDuration(float)
   - IsMoving(), GetCurrentTargetPosition(), GetCurrentSpeed()
 
-5) FirstPersonCamera（一人称カメラ）
+5) HumanMWalker（人間キャラクター歩行制御）
+- 目的: 人間キャラクターの歩行アニメーションと移動制御
+- 移動制御:
+  - 指定された経路での自動歩行（開始位置→特定位置→目標位置）
+  - 衝突回避機能（他のオブジェクトとの衝突を避ける）
+  - 到着判定と待機時間の制御
+- アニメーション制御:
+  - Animatorコンポーネントを使用した歩行アニメーション
+  - アニメーション速度の調整（歩行速度に連動）
+  - Legacyアニメーションエラーを回避（Animationコンポーネントは使用しない）
+- デバッグ機能:
+  - 詳細なデバッグ情報の表示
+  - リアルタイムでの状態監視
+- 入出力:
+  - Enterキーで歩行開始
+  - API: SetStartPosition(Vector3), IsMoving(), GetCurrentTarget()
+
+6) FirstPersonCamera（一人称カメラ）
 - 目的: VR を意識した一人称視点カメラ制御
 - カメラ設定:
   - fieldOfView, nearClipPlane, farClipPlane, Skybox, Forward Rendering
@@ -146,6 +164,10 @@
   - 各エージェントの heightChangeSpeed を設定
 - チーム混在を促進するため、disableTeamForces を true に設定（デフォルト）
 - パスカット機能は enablePassCut で制御可能
+- アニメーション関連:
+  - Legacyアニメーションエラーは解決済み（Animationコンポーネントは使用しない）
+  - HumanMWalkerはAnimatorコンポーネントのみを使用
+  - アニメーション速度は歩行速度に連動して自動調整
 - 実行中にスクリプトを編集した場合、再コンパイルで一部状態が初期化されるため、意図した設定にならない場合は再生を停止→再生し直してください。
 
 変数一覧と変更箇所（どこで変えられるか）
@@ -253,7 +275,34 @@
 - Debug（デバッグ）
   - enableDebugLogs (bool) : デバッグログの有効/無効（false）。インスペクターで変更
 
-5) FirstPersonCamera（コンポーネント: head-camera）
+5) HumanMWalker（コンポーネント: HumanM_Model）
+- Walking Settings（歩行設定）
+  - walkSpeed (float) : 歩行速度（2.0m/s）。インスペクターで変更
+  - startPosition (Vector3) : 開始位置。インスペクターで変更
+  - targetPosition (Vector3) : 目標位置。インスペクターで変更
+  - arrivalDistance (float) : 到着判定の距離（0.1m）。インスペクターで変更
+  - waitTime (float) : 到着後の待機時間（1.0秒）。インスペクターで変更
+  - specialWaitTime (float) : 特定位置での待機時間（3.0秒）。インスペクターで変更
+  - specialWaitPosition (Vector3) : 特定待機位置。インスペクターで変更
+  - autoStart (bool) : 自動開始。インスペクターで変更
+- Animation（アニメーション）
+  - animationSpeed (float) : アニメーション速度の調整（1.0）。インスペクターで変更
+  - walkAnimatorController (RuntimeAnimatorController) : 歩行アニメーションコントローラー。インスペクターで変更
+  - walkAnimationClip (AnimationClip) : 歩行アニメーションクリップ。インスペクターで変更
+  - jumpAnimationClip (AnimationClip) : ジャンプアニメーションクリップ（無効化）。インスペクターで変更
+  - animationBlendTime (float) : アニメーションのブレンド時間（0.2秒）。インスペクターで変更
+- Collision Avoidance（衝突回避）
+  - enableCollisionAvoidance (bool) : 他のオブジェクトとの衝突を避ける（true）。インスペクターで変更
+  - avoidanceDistance (float) : 衝突回避の検出距離（1.0m）。インスペクターで変更
+  - avoidanceForce (float) : 衝突回避の力の強さ（2.0）。インスペクターで変更
+- Jump Animation Settings（ジャンプアニメーション設定）
+  - enableWaitJumpAnimation (bool) : 待機中のジャンプアニメーションを有効にする（false - 無効化）。インスペクターで変更
+  - jumpAnimationSpeed (float) : ジャンプアニメーションの再生速度（1.0）。インスペクターで変更
+  - useWalkAnimationAsJump (bool) : ジャンプアニメーションが見つからない場合の代替手段（true）。インスペクターで変更
+- Debug（デバッグ）
+  - showDebugInfo (bool) : デバッグ情報を表示（true）。インスペクターで変更
+
+6) FirstPersonCamera（コンポーネント: head-camera）
 - fieldOfView (float) : 視野角（広いほど周辺が見えるが歪みやすい）。インスペクター／APIで変更
 - nearClipPlane (float), farClipPlane (float) : 描画する手前/奥の距離。インスペクターで変更
 - mouseSensitivity (float) : マウスの向き変更の敏感さ。インスペクターで変更
@@ -265,12 +314,16 @@
 - enableStereoRendering (bool) : ステレオ描画を有効化するか。インスペクターで変更
 
 キーボード操作一覧
-- Enter: 全エージェントの一時停止/再開
+- Enter: 全エージェントの一時停止/再開、HumanMWalkerの歩行開始
 - 1-5: ボール速度プリセット（VerySlow/Slow/Normal/Fast/VeryFast）
 - +/-: ボール速度の微調整
 - PageUp/PageDown: ボール速度の大幅調整
 - R: パス回数のリセット
 - ESC: カーソルロックの切り替え（FirstPersonCamera）
 
-備考: CourtManager の enableGlobalHeightSettings が ON の場合、各エージェントの
-enableHeightVariation と heightChangeSpeed は CourtManager の設定で毎フレーム上書きされます。
+備考:
+- CourtManager の enableGlobalHeightSettings が ON の場合、各エージェントの
+  enableHeightVariation と heightChangeSpeed は CourtManager の設定で毎フレーム上書きされます。
+- HumanMWalkerのアニメーションエラーは解決済みです。Legacyアニメーション（Animationコンポーネント）は
+  使用せず、Animatorコンポーネントのみを使用してアニメーションを制御します。
+- アニメーション速度は歩行速度に連動して自動調整され、パラメータベースの制御は行いません。

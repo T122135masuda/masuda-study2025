@@ -98,7 +98,7 @@ public class AutoSetup : MonoBehaviour
             if (cc == null)
             {
                 cc = obj.AddComponent<CharacterController>();
-                
+
                 // HumanM_Model用の特別な設定
                 if (name == "HumanM_Model")
                 {
@@ -123,7 +123,7 @@ public class AutoSetup : MonoBehaviour
                 rb.isKinematic = true;
                 rb.useGravity = false;
             }
-            
+
             // HumanM_Model用のアニメーション設定
             if (name == "HumanM_Model")
             {
@@ -135,7 +135,7 @@ public class AutoSetup : MonoBehaviour
     private void SetupFirstPersonCamera()
     {
         if (!setupFirstPersonCamera) return;
-        
+
         // head-cameraオブジェクトを検索
         GameObject headCamera = GameObject.Find("head-camera");
         if (headCamera == null)
@@ -143,25 +143,25 @@ public class AutoSetup : MonoBehaviour
             Debug.LogWarning("AutoSetup: head-cameraが見つかりませんでした。");
             return;
         }
-        
+
         Debug.Log($"AutoSetup: head-cameraを検出しました - 位置: {headCamera.transform.position}, ローカル位置: {headCamera.transform.localPosition}");
-        
+
         // head-cameraにFirstPersonCameraをアタッチ
         FirstPersonCamera firstPersonCamera = headCamera.GetComponent<FirstPersonCamera>();
         if (firstPersonCamera == null)
         {
             firstPersonCamera = headCamera.AddComponent<FirstPersonCamera>();
         }
-        
+
         // カメラコンポーネントを追加
         Camera camera = headCamera.GetComponent<Camera>();
         if (camera == null)
         {
             camera = headCamera.AddComponent<Camera>();
         }
-        
+
         Debug.Log("AutoSetup: head-cameraにFirstPersonCameraをアタッチしました: " + headCamera.name);
-        
+
         // メインカメラを無効化（オプション）
         if (disableMainCamera)
         {
@@ -219,48 +219,56 @@ public class AutoSetup : MonoBehaviour
 
     private void SetupHumanMAnimation(GameObject humanModel)
     {
-        // Animationコンポーネントを追加（ジャンプアニメーション用）
-        Animation animationComponent = humanModel.GetComponent<Animation>();
-        if (animationComponent == null)
-        {
-            animationComponent = humanModel.AddComponent<Animation>();
-            Debug.Log("AutoSetup: Animationコンポーネントを追加しました（ジャンプアニメーション用）");
-        }
-        
+        // Animationコンポーネントは追加しない（Legacyアニメーションエラー回避のため）
+        // Animation animationComponent = humanModel.GetComponent<Animation>();
+        // if (animationComponent == null)
+        // {
+        //     animationComponent = humanModel.AddComponent<Animation>();
+        //     Debug.Log("AutoSetup: Animationコンポーネントを追加しました（ジャンプアニメーション用）");
+        // }
+
         // Animatorコンポーネントを追加
         Animator animator = humanModel.GetComponent<Animator>();
         if (animator == null)
         {
             animator = humanModel.AddComponent<Animator>();
         }
-        
+
+        // NavMeshAgentコンポーネントを追加
+        UnityEngine.AI.NavMeshAgent navMeshAgent = humanModel.GetComponent<UnityEngine.AI.NavMeshAgent>();
+        if (navMeshAgent == null)
+        {
+            navMeshAgent = humanModel.AddComponent<UnityEngine.AI.NavMeshAgent>();
+            Debug.Log("AutoSetup: NavMeshAgentコンポーネントを追加しました");
+        }
+
         // HumanMWalkerコンポーネントを取得
         HumanMWalker walker = humanModel.GetComponent<HumanMWalker>();
-        
+
         // 歩行アニメーションコントローラーを探して設定
         RuntimeAnimatorController walkController = FindWalkAnimatorController();
-        
+
         if (walkController != null)
         {
             animator.runtimeAnimatorController = walkController;
-            
+
             // HumanMWalkerにも設定
             if (walker != null)
             {
                 walker.SetAnimatorController(walkController);
             }
-            
+
             Debug.Log($"AutoSetup: HumanM_Modelに歩行アニメーションを設定しました: {walkController.name}");
         }
         else
         {
             Debug.LogWarning("AutoSetup: 歩行アニメーションコントローラーが見つかりませんでした。手動で設定してください。");
         }
-        
+
         // アニメーション速度を調整（必要に応じて）
         animator.speed = 1.0f;
     }
-    
+
     private RuntimeAnimatorController FindWalkAnimatorController()
     {
         // 複数の歩行アニメーションコントローラーを試す
@@ -270,7 +278,7 @@ public class AutoSetup : MonoBehaviour
             "HumanM@Walk01_ForwardRight",
             "HumanM@Walk01_ForwardLeft"
         };
-        
+
         foreach (string controllerName in controllerNames)
         {
             RuntimeAnimatorController controller = Resources.Load<RuntimeAnimatorController>(controllerName);
@@ -280,11 +288,11 @@ public class AutoSetup : MonoBehaviour
                 return controller;
             }
         }
-        
+
         // Resourcesフォルダから見つからない場合は、シーン内のオブジェクトから検索
         Debug.LogWarning("AutoSetup: Resourcesフォルダからアニメーションコントローラーが見つかりませんでした。");
         Debug.LogWarning("AutoSetup: 手動でアニメーションコントローラーを設定してください。");
-        
+
         return null;
     }
 
@@ -296,7 +304,7 @@ public class AutoSetup : MonoBehaviour
             {
                 return child;
             }
-            
+
             Transform result = FindChildRecursive(child, childName);
             if (result != null)
             {
