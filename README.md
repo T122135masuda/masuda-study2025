@@ -1,1 +1,1 @@
-操作不明点はreadme.mdみること
+操作不明点はreadme.txtみること
