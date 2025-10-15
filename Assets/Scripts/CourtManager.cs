@@ -11,7 +11,7 @@ public class CourtManager : MonoBehaviour
 
     [Header("Agents (自動) ")]
     public List<BasketballAgentController> agents = new List<BasketballAgentController>();
-    
+
     [Header("Walls (自動検出)")]
     public List<Collider> wallColliders = new List<Collider>();
 
@@ -27,9 +27,16 @@ public class CourtManager : MonoBehaviour
     [Tooltip("全エージェント高さ速度の最小/最大範囲（参考）")]
     public Vector2 globalHeightSpeedRange = new Vector2(0.1f, 3.0f);
 
+    // 一時的に全エージェントの高さ変化を停止するためのフリーズ制御
+    private float _heightFreezeUntil = 0f;
+
     private void Update()
     {
         if (!enableGlobalHeightSettings) return;
+
+        // フリーズ制御に基づき有効/無効を自動更新
+        bool shouldEnable = Time.time >= _heightFreezeUntil;
+        globalEnableHeightVariation = shouldEnable;
 
         // エージェントへ一括適用（毎フレーム）
         for (int i = 0; i < agents.Count; i++)
@@ -63,6 +70,28 @@ public class CourtManager : MonoBehaviour
             var agent = agents[i];
             if (agent == null) continue;
             agent.enableHeightVariation = enabled;
+        }
+    }
+
+    // 0.8秒など、指定時間だけ全エージェントの高さ変化を停止
+    public void FreezeHeightVariationFor(float seconds)
+    {
+        float until = Time.time + Mathf.Max(0f, seconds);
+        if (until > _heightFreezeUntil)
+        {
+            _heightFreezeUntil = until;
+        }
+
+        // 直ちに全エージェントの高さ変化を停止（同フレーム反映）
+        globalEnableHeightVariation = false;
+        if (enableGlobalHeightSettings)
+        {
+            for (int i = 0; i < agents.Count; i++)
+            {
+                var agent = agents[i];
+                if (agent == null) continue;
+                agent.enableHeightVariation = false;
+            }
         }
     }
 

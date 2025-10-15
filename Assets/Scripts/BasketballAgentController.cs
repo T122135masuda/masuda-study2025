@@ -30,7 +30,7 @@ public class BasketballAgentController : MonoBehaviour
     [Tooltip("回避の強さ")]
     public float avoidanceStrength = 7f;
 
-    [Header("Boundary")] 
+    [Header("Boundary")]
     [Tooltip("境界からの余裕距離")]
     public float boundaryPadding = 0.4f; // 端から少し内側を保つ
     [Tooltip("境界押し戻しの強さ")]
@@ -44,7 +44,7 @@ public class BasketballAgentController : MonoBehaviour
     [Tooltip("予測的境界チェック距離")]
     public float predictiveBoundaryDistance = 1.0f; // 予測的境界チェック距離
 
-    [Header("Wall Avoidance")] 
+    [Header("Wall Avoidance")]
     [Tooltip("壁検出距離")]
     public float wallDetectDistance = 1.0f; // 壁からこの距離以内で回避
     [Tooltip("壁回避の強さ")]
@@ -100,13 +100,13 @@ public class BasketballAgentController : MonoBehaviour
     [Header("Speed Presets")]
     [Tooltip("速度プリセット")]
     public SpeedPreset speedPreset = SpeedPreset.Normal;
-    
+
     [Header("Pause Control")]
     [Tooltip("エンターキーで一時停止/再開")]
     public bool enablePauseControl = true;
     [Tooltip("初期状態で停止するか")]
     public bool startPaused = true;
-    
+
     public enum SpeedPreset
     {
         Slow = 0,
@@ -124,7 +124,7 @@ public class BasketballAgentController : MonoBehaviour
     private float _directionChangeTimer = 0f;
     private string _teamType; // "white" or "black"
     private Vector3 _teamCenter; // チームの中心位置
-    
+
     // 固定ランダム用の変数
     private float _wanderOffsetX = 0f;
     private float _wanderOffsetZ = 0f;
@@ -133,7 +133,7 @@ public class BasketballAgentController : MonoBehaviour
     private float _sprintThreshold = 0f;
     private float _sprintDuration = 0f;
     private int _agentId = 0;
-    
+
     [Header("Height Variation")]
     [Tooltip("高さ変化を有効にする")]
     public bool enableHeightVariation = true;
@@ -141,12 +141,14 @@ public class BasketballAgentController : MonoBehaviour
     public float heightChangeSpeed = 0.5f;
     [Tooltip("高さ変化速度の最小値／最大値")]
     public Vector2 heightChangeSpeedRange = new Vector2(0.1f, 3.0f);
-    
+    [Tooltip("高さ変化が再開されたときのスムーズ復帰時間（秒）")]
+    public float heightResumeBlendDuration = 0.3f;
+
     // 初期値の保存
     private Vector3 _initialScale;
     private float _initialCCHeight;
     private float _initialCCCenterY;
-    
+
     // 一時停止管理
     private bool _isPaused = false;
     private static bool _globalPause = false; // 全エージェント共通の一時停止状態
@@ -155,22 +157,22 @@ public class BasketballAgentController : MonoBehaviour
     {
         _cc = GetComponent<CharacterController>();
         CourtManager.Instance?.RegisterAgent(this);
-        
+
         // エージェントIDを決定（名前から）
         DetermineAgentId();
-        
+
         // 固定ランダム初期化
         if (useFixedRandom)
         {
             InitializeFixedRandom();
         }
-        
+
         // 速度プリセットを適用
         ApplySpeedPreset();
-        
+
         // 初期ワンダーターゲットを前方に配置
         _wanderTarget = transform.position + transform.forward * wanderDistance;
-        
+
         // チーム判定
         DetermineTeam();
 
@@ -182,6 +184,9 @@ public class BasketballAgentController : MonoBehaviour
             _initialCCCenterY = _cc.center.y;
         }
 
+        // 高さ変化の状態を初期化
+        _heightWasEnabled = enableHeightVariation;
+
         // 一時停止状態の初期化
         _isPaused = startPaused;
         if (_isPaused)
@@ -191,7 +196,7 @@ public class BasketballAgentController : MonoBehaviour
             Debug.Log($"{gameObject.name} は一時停止状態に設定されました。");
         }
     }
-    
+
     private void ApplySpeedPreset()
     {
         switch (speedPreset)
@@ -227,7 +232,7 @@ public class BasketballAgentController : MonoBehaviour
     {
         CourtManager.Instance?.UnregisterAgent(this);
     }
-    
+
     private void OnValidate()
     {
         // インスペクターでプリセットが変更された時に自動適用
@@ -254,7 +259,7 @@ public class BasketballAgentController : MonoBehaviour
     {
         // エージェント固有のシードを設定
         int agentSeed = seed + _agentId * 1000;
-        
+
         // 固定値の初期化（エージェントごとに異なるが再現可能）
         _wanderOffsetX = GetFixedRandom(agentSeed, 0.1f, 0.9f);
         _wanderOffsetZ = GetFixedRandom(agentSeed + 1, 0.1f, 0.9f);
@@ -294,7 +299,7 @@ public class BasketballAgentController : MonoBehaviour
         {
             ToggleGlobalPause();
         }
-        
+
         // 一時停止状態の管理
         if (_isPaused)
         {
@@ -302,7 +307,7 @@ public class BasketballAgentController : MonoBehaviour
             _cc.enabled = false;
             return; // 一時停止中は何もしない
         }
-        
+
         // CharacterControllerを有効化
         if (!_cc.enabled)
         {
@@ -336,21 +341,21 @@ public class BasketballAgentController : MonoBehaviour
         }
         desired += ComputeSeparation();
         desired += ComputeAvoidance();
-        
+
         // 境界維持を最優先
         desired += boundaryForce;
-        
+
         // 境界外の場合は他の力を制限
         if (isOutOfBounds)
         {
             desired = Vector3.ClampMagnitude(desired, maxSpeed * 0.5f);
-            
+
             // ログ出力は抑制
         }
         else
         {
             desired += ComputeWallAvoidance();
-            
+
             // チーム関連の力を条件付きで適用
             if (!disableTeamForces)
             {
@@ -359,7 +364,7 @@ public class BasketballAgentController : MonoBehaviour
                 desired += ComputeOpponentAvoidance();
             }
             desired += ComputeTeamMixing(); // 混在促進は常に有効
-            
+
             // パスカット機能
             if (enablePassCut)
             {
@@ -395,16 +400,36 @@ public class BasketballAgentController : MonoBehaviour
         // 高さ変化の適用（移動処理後にスケールを更新）
         if (enableHeightVariation)
         {
+            // 直前まで無効だった→有効になった直後はスムーズ復帰を開始
+            if (!_heightWasEnabled)
+            {
+                _heightResumeBlendUntil = Time.time + Mathf.Max(0f, heightResumeBlendDuration);
+                float denom = Mathf.Max(0.0001f, _initialScale.y);
+                _heightResumeStartFactor = transform.localScale.y / denom;
+            }
             ApplyHeightVariation();
         }
+
+        // 次フレーム用に状態を保持
+        _heightWasEnabled = enableHeightVariation;
     }
 
     private void ApplyHeightVariation()
     {
         // サイン波で 0.5 ～ 1.0 の係数を生成（初期値を上限とする）
         float phase = Time.time * heightChangeSpeed + _agentId;
-        float factor = 0.75f + 0.25f * Mathf.Sin(phase);
-        factor = Mathf.Clamp(factor, 0.5f, 1.0f);
+        float targetFactor = 0.75f + 0.25f * Mathf.Sin(phase);
+        targetFactor = Mathf.Clamp(targetFactor, 0.5f, 1.0f);
+
+        // 再開直後の滑らかな復帰
+        float factor = targetFactor;
+        if (Time.time < _heightResumeBlendUntil)
+        {
+            float total = Mathf.Max(0.0001f, heightResumeBlendDuration);
+            float t = 1f - ((_heightResumeBlendUntil - Time.time) / total);
+            t = Mathf.Clamp01(t);
+            factor = Mathf.Lerp(_heightResumeStartFactor, targetFactor, t);
+        }
 
         // 見た目のカプセルスケール更新（Y のみ変化）
         Vector3 targetScale = new Vector3(_initialScale.x, _initialScale.y * factor, _initialScale.z);
@@ -419,6 +444,11 @@ public class BasketballAgentController : MonoBehaviour
             _cc.center = c;
         }
     }
+
+    // 内部: 高さ変化のスムーズ復帰用
+    private float _heightResumeBlendUntil = 0f;
+    private float _heightResumeStartFactor = 1f;
+    private bool _heightWasEnabled = true;
 
     // 高さ変化速度の外部設定用API
     public void SetHeightChangeSpeed(float newSpeed)
@@ -439,7 +469,7 @@ public class BasketballAgentController : MonoBehaviour
             float time = Time.time;
             float jitterX = Mathf.Sin(time * 0.5f + _wanderOffsetX) * wanderJitter;
             float jitterZ = Mathf.Cos(time * 0.7f + _wanderOffsetZ) * wanderJitter;
-            
+
             _wanderTarget += new Vector3(jitterX, 0f, jitterZ) * Time.deltaTime;
             _wanderTarget = transform.position + (transform.forward * wanderDistance) + (_wanderTarget - transform.position).normalized * wanderRadius;
         }
@@ -449,29 +479,29 @@ public class BasketballAgentController : MonoBehaviour
             _wanderTarget += new Vector3(Random.Range(-1f, 1f) * wanderJitter, 0f, Random.Range(-1f, 1f) * wanderJitter);
             _wanderTarget = transform.position + (transform.forward * wanderDistance) + (_wanderTarget - transform.position).normalized * wanderRadius;
         }
-        
+
         // ワンダーターゲットを境界内に制限
         _wanderTarget = ClampPositionToBounds(_wanderTarget);
-        
+
         Vector3 steering = (_wanderTarget - transform.position);
         return steering;
     }
-    
+
     private Vector3 ClampPositionToBounds(Vector3 position)
     {
         if (CourtManager.Instance == null) return position;
         if (!CourtManager.Instance.TryGetFloorBounds(out var bounds)) return position;
-        
+
         // 境界内に制限（Z軸方向に追加パディング）
         float minX = bounds.min.x + boundaryPadding;
         float maxX = bounds.max.x - boundaryPadding;
         float minZ = bounds.min.z + boundaryPadding + zBoundaryExtraPadding;
         float maxZ = bounds.max.z - boundaryPadding;
-        
+
         position.x = Mathf.Clamp(position.x, minX, maxX);
         position.z = Mathf.Clamp(position.z, minZ, maxZ);
         position.y = transform.position.y; // Y座標は現在位置を維持
-        
+
         return position;
     }
 
@@ -541,27 +571,27 @@ public class BasketballAgentController : MonoBehaviour
 
         Vector3 push = Vector3.zero;
         float maxPushDistance = 0f;
-        
+
         // 現在位置の境界チェック
-        if (pos.x < minX) 
+        if (pos.x < minX)
         {
             float distance = minX - pos.x;
             push.x += distance;
             maxPushDistance = Mathf.Max(maxPushDistance, distance);
         }
-        if (pos.x > maxX) 
+        if (pos.x > maxX)
         {
             float distance = pos.x - maxX;
             push.x -= distance;
             maxPushDistance = Mathf.Max(maxPushDistance, distance);
         }
-        if (pos.z < minZ) 
+        if (pos.z < minZ)
         {
             float distance = minZ - pos.z;
             push.z += distance;
             maxPushDistance = Mathf.Max(maxPushDistance, distance);
         }
-        if (pos.z > maxZ) 
+        if (pos.z > maxZ)
         {
             float distance = pos.z - maxZ;
             push.z -= distance;
@@ -572,26 +602,26 @@ public class BasketballAgentController : MonoBehaviour
         if (velocity.magnitude > 0.1f)
         {
             Vector3 predictedPos = pos + velocity.normalized * predictiveBoundaryDistance;
-            
-            if (predictedPos.x < minX) 
+
+            if (predictedPos.x < minX)
             {
                 float distance = minX - predictedPos.x;
                 push.x += distance * 0.5f; // 予測的な押し戻しは軽め
                 maxPushDistance = Mathf.Max(maxPushDistance, distance);
             }
-            if (predictedPos.x > maxX) 
+            if (predictedPos.x > maxX)
             {
                 float distance = predictedPos.x - maxX;
                 push.x -= distance * 0.5f;
                 maxPushDistance = Mathf.Max(maxPushDistance, distance);
             }
-            if (predictedPos.z < minZ) 
+            if (predictedPos.z < minZ)
             {
                 float distance = minZ - predictedPos.z;
                 push.z += distance * 0.8f; // Z軸方向の予測は強め
                 maxPushDistance = Mathf.Max(maxPushDistance, distance);
             }
-            if (predictedPos.z > maxZ) 
+            if (predictedPos.z > maxZ)
             {
                 float distance = predictedPos.z - maxZ;
                 push.z -= distance * 0.5f;
@@ -604,7 +634,7 @@ public class BasketballAgentController : MonoBehaviour
         {
             float forceStrength = Mathf.Min(boundaryPushStrength * boundaryForceMultiplier * maxPushDistance, maxBoundaryForce);
             push = push.normalized * forceStrength;
-            
+
             // ログ出力は抑制
         }
         else
@@ -643,15 +673,15 @@ public class BasketballAgentController : MonoBehaviour
                 // 壁の法線方向に強く押し返す
                 Vector3 away = toMe.normalized;
                 float strength = (1f - dist / wallDetectDistance) * wallAvoidStrength;
-                
+
                 // 壁に平行な方向への移動を促進
                 Vector3 wallTangent = Vector3.Cross(Vector3.up, toMe.normalized);
                 Vector3 currentVel = _velocity.sqrMagnitude > 0.01f ? _velocity.normalized : transform.forward;
-                
+
                 // 壁に沿って移動する方向を計算
                 float dot = Vector3.Dot(currentVel, wallTangent);
                 Vector3 slideDirection = wallTangent * Mathf.Sign(dot);
-                
+
                 // 壁から離れる力 + 壁に沿って移動する力
                 avoid += away * strength + slideDirection * strength * 0.6f;
                 count++;
@@ -683,10 +713,10 @@ public class BasketballAgentController : MonoBehaviour
     private Vector3 ComputeTeamCohesion()
     {
         if (CourtManager.Instance == null || _teamType == "neutral") return Vector3.zero;
-        
+
         Vector3 teamCenter = Vector3.zero;
         int teamCount = 0;
-        
+
         // チームメイトの中心位置を計算
         foreach (var other in CourtManager.Instance.agents)
         {
@@ -697,12 +727,12 @@ public class BasketballAgentController : MonoBehaviour
                 teamCount++;
             }
         }
-        
+
         if (teamCount > 0)
         {
             teamCenter /= teamCount;
             _teamCenter = teamCenter;
-            
+
             // チーム中心に向かう力（距離に応じて弱くなる）
             Vector3 toCenter = teamCenter - transform.position;
             float dist = toCenter.magnitude;
@@ -713,17 +743,17 @@ public class BasketballAgentController : MonoBehaviour
                 return toCenter.normalized * teamCohesionStrength * strength * 0.5f;
             }
         }
-        
+
         return Vector3.zero;
     }
 
     private Vector3 ComputeTeamFormation()
     {
         if (CourtManager.Instance == null || _teamType == "neutral") return Vector3.zero;
-        
+
         Vector3 formationForce = Vector3.zero;
         int teamCount = 0;
-        
+
         // チームメイトとの適切な距離を保つ（より柔軟に）
         foreach (var other in CourtManager.Instance.agents)
         {
@@ -732,7 +762,7 @@ public class BasketballAgentController : MonoBehaviour
             {
                 Vector3 toOther = other.transform.position - transform.position;
                 float dist = toOther.magnitude;
-                
+
                 // より広い適切な距離（1.5-5.0）を保つ
                 if (dist < 1.5f)
                 {
@@ -745,22 +775,22 @@ public class BasketballAgentController : MonoBehaviour
                 teamCount++;
             }
         }
-        
+
         if (teamCount > 0)
         {
             formationForce /= teamCount;
         }
-        
+
         return formationForce * teamFormationStrength;
     }
 
     private Vector3 ComputeOpponentAvoidance()
     {
         if (CourtManager.Instance == null || _teamType == "neutral") return Vector3.zero;
-        
+
         Vector3 avoidForce = Vector3.zero;
         int opponentCount = 0;
-        
+
         // 相手チームを回避
         foreach (var other in CourtManager.Instance.agents)
         {
@@ -769,7 +799,7 @@ public class BasketballAgentController : MonoBehaviour
             {
                 Vector3 toMe = transform.position - other.transform.position;
                 float dist = toMe.magnitude;
-                
+
                 if (dist < opponentAvoidanceRadius && dist > 0.0001f)
                 {
                     Vector3 away = toMe.normalized;
@@ -779,22 +809,22 @@ public class BasketballAgentController : MonoBehaviour
                 }
             }
         }
-        
+
         if (opponentCount > 0)
         {
             avoidForce /= opponentCount;
         }
-        
+
         return avoidForce;
     }
 
     private Vector3 ComputeTeamMixing()
     {
         if (CourtManager.Instance == null || _teamType == "neutral") return Vector3.zero;
-        
+
         Vector3 mixingForce = Vector3.zero;
         int opponentCount = 0;
-        
+
         // 相手チームのプレイヤーに向かう力（混在を強力に促進）
         foreach (var other in CourtManager.Instance.agents)
         {
@@ -803,7 +833,7 @@ public class BasketballAgentController : MonoBehaviour
             {
                 Vector3 toOpponent = other.transform.position - transform.position;
                 float dist = toOpponent.magnitude;
-                
+
                 // より広い距離範囲（2.0-8.0）で相手に向かう力
                 if (dist > 2.0f && dist < 8.0f)
                 {
@@ -814,38 +844,38 @@ public class BasketballAgentController : MonoBehaviour
                 }
             }
         }
-        
+
         if (opponentCount > 0)
         {
             mixingForce /= opponentCount;
         }
-        
+
         return mixingForce;
     }
 
     private Vector3 ComputePassCut()
     {
         if (CourtManager.Instance == null) return Vector3.zero;
-        
+
         // ボールを取得
         var ball = FindObjectOfType<BallPassController>();
         if (ball == null) return Vector3.zero;
-        
+
         // ボールが動いていない場合はパスカットしない
         if (!ball.IsMoving()) return Vector3.zero;
-        
+
         // ボールの現在位置と目標位置を取得
         Vector3 ballPos = ball.transform.position;
         Vector3 ballTarget = ball.GetCurrentTargetPosition();
-        
+
         // ボールの移動方向を計算
         Vector3 ballDirection = (ballTarget - ballPos).normalized;
         float ballDistance = Vector3.Distance(ballPos, ballTarget);
-        
+
         // ボールの移動速度を推定
         float ballSpeed = ball.GetCurrentSpeed();
         float timeToTarget = ballDistance / ballSpeed;
-        
+
         // パスカットの確率チェック
         bool shouldAttemptCut = false;
         if (useFixedRandom)
@@ -857,27 +887,27 @@ public class BasketballAgentController : MonoBehaviour
         {
             shouldAttemptCut = Random.Range(0f, 1f) < passCutChance;
         }
-        
+
         if (!shouldAttemptCut) return Vector3.zero;
-        
+
         // パスカット可能な位置を計算
         Vector3 cutPosition = ballPos + ballDirection * (ballDistance * 0.5f); // パスの中間点
         Vector3 toCutPosition = cutPosition - transform.position;
         float distanceToCut = toCutPosition.magnitude;
-        
+
         // パスカット可能な距離内かチェック
         if (distanceToCut > passCutDetectionRadius) return Vector3.zero;
-        
+
         // パスカットの成功率を計算（距離と時間に基づく）
         float timeToCut = distanceToCut / maxSpeed;
         float cutSuccess = Mathf.Clamp01(1.0f - (timeToCut / timeToTarget));
-        
+
         // 成功率が低い場合はパスカットしない
         if (cutSuccess < 0.3f) return Vector3.zero;
-        
+
         // パスカット方向への力を計算
         Vector3 cutForce = toCutPosition.normalized * passCutStrength * cutSuccess;
-        
+
         return cutForce;
     }
 
@@ -907,24 +937,24 @@ public class BasketballAgentController : MonoBehaviour
         }
         else
         {
-        // ランダムに停止（固定ランダム）
-        if (useFixedRandom)
-        {
-            float idleCheck = Mathf.Sin(Time.time * 0.5f + _agentId * 0.5f) * 0.5f + 0.5f;
-            if (idleCheck < idleChance)
+            // ランダムに停止（固定ランダム）
+            if (useFixedRandom)
             {
-                _isIdle = true;
-                _idleTimer = 1f + _agentId * 0.3f; // エージェントごとに異なる停止時間
+                float idleCheck = Mathf.Sin(Time.time * 0.5f + _agentId * 0.5f) * 0.5f + 0.5f;
+                if (idleCheck < idleChance)
+                {
+                    _isIdle = true;
+                    _idleTimer = 1f + _agentId * 0.3f; // エージェントごとに異なる停止時間
+                }
             }
-        }
-        else
-        {
-            if (Random.Range(0f, 1f) < idleChance * Time.deltaTime)
+            else
             {
-                _isIdle = true;
-                _idleTimer = Random.Range(1f, 3f);
+                if (Random.Range(0f, 1f) < idleChance * Time.deltaTime)
+                {
+                    _isIdle = true;
+                    _idleTimer = Random.Range(1f, 3f);
+                }
             }
-        }
         }
 
         // 方向転換
@@ -941,7 +971,7 @@ public class BasketballAgentController : MonoBehaviour
             {
                 shouldChangeDirection = Random.Range(0f, 1f) < directionChangeChance;
             }
-            
+
             if (shouldChangeDirection)
             {
                 Vector3 randomDir;
@@ -973,7 +1003,7 @@ public class BasketballAgentController : MonoBehaviour
             {
                 shouldSprint = Random.Range(0f, 1f) < sprintChance * Time.deltaTime;
             }
-            
+
             if (shouldSprint)
             {
                 _isSprinting = true;
@@ -988,7 +1018,7 @@ public class BasketballAgentController : MonoBehaviour
         yield return new WaitForSeconds(duration);
         _isSprinting = false;
     }
-    
+
     // 一時停止/再開の切り替え
     public void TogglePause()
     {
@@ -1001,13 +1031,13 @@ public class BasketballAgentController : MonoBehaviour
             Pause();
         }
     }
-    
+
     // 全エージェントの一時停止/再開切り替え
     public static void ToggleGlobalPause()
     {
         _globalPause = !_globalPause;
         BasketballAgentController[] agents = FindObjectsOfType<BasketballAgentController>();
-        
+
         foreach (var agent in agents)
         {
             if (_globalPause)
@@ -1019,7 +1049,7 @@ public class BasketballAgentController : MonoBehaviour
                 agent.Resume();
             }
         }
-        
+
         Debug.Log($"全エージェントを {(_globalPause ? "一時停止" : "再開")} しました。");
 
         // 再開時にパスも開始（パス回数をカウントしない）
@@ -1032,32 +1062,32 @@ public class BasketballAgentController : MonoBehaviour
             }
         }
     }
-    
+
     // 全エージェントの一時停止
     public static void PauseAll()
     {
         _globalPause = true;
         BasketballAgentController[] agents = FindObjectsOfType<BasketballAgentController>();
-        
+
         foreach (var agent in agents)
         {
             agent.Pause();
         }
-        
+
         Debug.Log("全エージェントを一時停止しました。");
     }
-    
+
     // 全エージェントの再開
     public static void ResumeAll()
     {
         _globalPause = false;
         BasketballAgentController[] agents = FindObjectsOfType<BasketballAgentController>();
-        
+
         foreach (var agent in agents)
         {
             agent.Resume();
         }
-        
+
         Debug.Log("全エージェントを再開しました。");
 
         // パスを開始（パス回数をカウントしない）
@@ -1067,7 +1097,7 @@ public class BasketballAgentController : MonoBehaviour
             pass.ResumePassing();
         }
     }
-    
+
     // 一時停止
     public void Pause()
     {
@@ -1076,7 +1106,7 @@ public class BasketballAgentController : MonoBehaviour
         _cc.enabled = false;
         Debug.Log($"{gameObject.name} を一時停止しました。");
     }
-    
+
     // 再開
     public void Resume()
     {
@@ -1091,19 +1121,19 @@ public class BasketballAgentController : MonoBehaviour
             pass.ResumePassing();
         }
     }
-    
+
     // 一時停止状態の取得
     public bool IsPaused()
     {
         return _isPaused;
     }
-    
+
     // 現在の速度を取得（ボールの予測位置計算用）
     public Vector3 GetCurrentVelocity()
     {
         return _velocity;
     }
-    
+
     // 現在の高さ変化係数を取得（ボールの着地点計算用）
     public float GetCurrentHeightFactor()
     {
@@ -1111,7 +1141,7 @@ public class BasketballAgentController : MonoBehaviour
         {
             return 1.0f;
         }
-        
+
         // サイン波で 0.5 ～ 1.0 の係数を生成（初期値を上限とする）
         float phase = Time.time * heightChangeSpeed + _agentId;
         float factor = 0.75f + 0.25f * Mathf.Sin(phase);

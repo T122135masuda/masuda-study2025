@@ -83,6 +83,9 @@ public class Ball2PassController : MonoBehaviour
   private float _travelDistance;
   private float _passT = 0f; // 0→1 の進捗
   private bool _waitingForStart = true; // 外部トリガー待機
+  // 初期（再生直後）に取得した各カプセルの位置を保存
+  private readonly Dictionary<Transform, Vector3> _initialAnchorPositions = new Dictionary<Transform, Vector3>();
+  private bool _firstPassUsesInitialAnchors = true;
 
   // パス回数カウント用
   private int _totalPassCount = 0; // 総パス回数
@@ -130,6 +133,19 @@ public class Ball2PassController : MonoBehaviour
     }
 
     RefreshTeammates();
+    // ログ: 再生ボタン押下時点の各カプセル位置（Start直後）
+    if (enableDebugLogs)
+    {
+      for (int i = 0; i < _teammates.Count; i++)
+      {
+        var t = _teammates[i];
+        if (t != null)
+        {
+          Vector3 p = t.position;
+          Debug.Log($"Ball2PassController: Start() 直後位置 [{i}] {t.name}: {p}");
+        }
+      }
+    }
     if (enableDebugLogs)
     {
       Debug.Log($"Ball2PassController: teammates={_teammates.Count}, team={passTeam}");
@@ -152,21 +168,34 @@ public class Ball2PassController : MonoBehaviour
       Debug.Log($"Ball2PassController: autoStart={autoStart}, teammates.Count={_teammates.Count}, waitingForStart={_waitingForStart}");
     }
 
+    // 再生直後は1フレーム待ってから現在のカプセル位置を取得して初期配置
+    StartCoroutine(InitializeAnchorsAtRuntime());
+  }
+
+  private System.Collections.IEnumerator InitializeAnchorsAtRuntime()
+  {
+    yield return null;
+    RefreshTeammates();
+    // 再生直後の各カプセル位置を保存
+    _initialAnchorPositions.Clear();
+    for (int i = 0; i < _teammates.Count; i++)
+    {
+      var t = _teammates[i];
+      if (t != null && !_initialAnchorPositions.ContainsKey(t))
+      {
+        _initialAnchorPositions[t] = GetTargetPosition(t);
+        if (enableDebugLogs)
+        {
+          Debug.Log($"Ball2PassController: 再生直後(1フレーム後) 記録位置 [{i}] {t.name}: {_initialAnchorPositions[t]} | 現在: {t.position}");
+        }
+      }
+    }
     if (autoStart && _teammates.Count >= 2)
     {
-      if (enableDebugLogs)
-      {
-        Debug.Log("Ball2PassController: autoStart=true かつ teammates>=2 なので StartPassing() を呼び出します");
-      }
       StartPassing();
     }
     else
     {
-      if (enableDebugLogs)
-      {
-        Debug.Log("Ball2PassController: 待機状態。SnapBallToTeamAnchor() を呼び出します");
-      }
-      // 待機中はチームの基準アンカー上にボールを固定
       SnapBallToTeamAnchor();
     }
   }
@@ -359,6 +388,11 @@ public class Ball2PassController : MonoBehaviour
     // パス開始
     // エンターキー押下直後のワープを防ぐため、ボールの現在位置から開始
     _startPos = _ball.position;
+    // 初回パスのみ、再生直後に保存した初期位置を宛先に使用
+    if (_firstPassUsesInitialAnchors && _initialAnchorPositions.TryGetValue(_teammates[nextIndex], out var savedToInitial))
+    {
+      toPos = savedToInitial;
+    }
     _endPos = toPos;
     _travelDistance = Vector3.Distance(_startPos, _endPos);
 
@@ -448,6 +482,15 @@ public class Ball2PassController : MonoBehaviour
 
     _waitingForStart = false;
 
+    // エンター押下直後は1.0秒間、全エージェントの高さ変化を停止
+    if (CourtManager.Instance != null)
+    {
+      CourtManager.Instance.FreezeHeightVariationFor(1.0f);
+    }
+
+    // エンター押下直前と直後で座標が一致するよう、同チームの全カプセルを短時間だけ静止
+    FreezeTeammatePositions(0.1f);
+
     // 既にパスが進行中の場合は何もしない
     if (_isMoving)
     {
@@ -472,6 +515,21 @@ public class Ball2PassController : MonoBehaviour
         Debug.Log($"Ball2PassController: 初回エンターキー押下 - 現在のインデックス: {_currentIndex}, カプセル: {(_teammates.Count > _currentIndex ? _teammates[_currentIndex].name : "なし")}");
       }
       BeginNextPass();
+    }
+  }
+
+  // 同チームの全カプセルを duration 秒だけ静止させる
+  private void FreezeTeammatePositions(float duration)
+  {
+    for (int i = 0; i < _teammates.Count; i++)
+    {
+      var t = _teammates[i];
+      if (t == null) continue;
+      var agent = t.GetComponent<BasketballAgentController>();
+      if (agent != null)
+      {
+        agent.SetIdleState(true, duration);
+      }
     }
   }
 
