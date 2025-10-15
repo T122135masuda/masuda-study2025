@@ -99,7 +99,7 @@ public class BasketballAgentController : MonoBehaviour
 
     [Header("Speed Presets")]
     [Tooltip("速度プリセット")]
-    public SpeedPreset speedPreset = SpeedPreset.Normal;
+    public SpeedPreset speedPreset = SpeedPreset.Fast;
 
     [Header("Pause Control")]
     [Tooltip("エンターキーで一時停止/再開")]
@@ -152,6 +152,8 @@ public class BasketballAgentController : MonoBehaviour
     // 一時停止管理
     private bool _isPaused = false;
     private static bool _globalPause = false; // 全エージェント共通の一時停止状態
+    // 完全凍結（外力無視）終了時刻
+    private float _freezeUntil = 0f;
 
     private void OnEnable()
     {
@@ -306,6 +308,14 @@ public class BasketballAgentController : MonoBehaviour
             _velocity = Vector3.zero;
             _cc.enabled = false;
             return; // 一時停止中は何もしない
+        }
+
+        // 凍結状態（外力を無視して動かさない）
+        if (Time.time < _freezeUntil)
+        {
+            _velocity = Vector3.zero;
+            if (!_cc.enabled) _cc.enabled = true;
+            return;
         }
 
         // CharacterControllerを有効化
@@ -1160,6 +1170,14 @@ public class BasketballAgentController : MonoBehaviour
         {
             _idleTimer = 0f;
         }
+    }
+
+    // 完全に動きを止める（境界/回避等の外力も無視）
+    public void FreezeFor(float duration)
+    {
+        _freezeUntil = Mathf.Max(_freezeUntil, Time.time + Mathf.Max(0f, duration));
+        _velocity = Vector3.zero;
+        if (_cc != null) _cc.enabled = true;
     }
 
 }

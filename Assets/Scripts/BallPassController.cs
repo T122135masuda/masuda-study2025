@@ -12,10 +12,7 @@ public class BallPassController : MonoBehaviour
 	[Header("Pass Settings")]
 	[Tooltip("どのチーム同士でパスするか（White/Black）")]
 	public PassTeam passTeam = PassTeam.White;
-	[Tooltip("パス開始時の基準カプセル番号（1, 2, 3など）")]
-	public int startCapsuleNumber = 2;
-	[Tooltip("待機（エンター押下前）に表示するカプセル番号。未指定時はstartCapsuleNumberを使用")]
-	public int idleCapsuleNumber = 0;
+	// 開始/待機カプセル番号は廃止（待機中は常に番号1へ固定）
 	[Tooltip("予測位置計算を有効にする（無効にすると直線的なパスになる）")]
 	public bool enablePrediction = false;
 	[Tooltip("着地点の精度を向上させる（カプセルの中心を正確に計算）")]
@@ -26,11 +23,11 @@ public class BallPassController : MonoBehaviour
 	[Range(0.1f, 3.0f)]
 	public float passPauseDuration = 2.5f;
 	[Tooltip("ボールの移動速度（m/s）")]
-	public float passSpeed = 4.0f;
+	public float passSpeed = 7.0f;
 	[Tooltip("受け手に到達後に保持する時間（秒）")]
-	public float holdTimeAtReceiver = 0.8f;
-	[Tooltip("パス時の放物線の高さ（m）")]
-	public float arcHeight = 0.7f;
+	public float holdTimeAtReceiver = 0.4f;
+	[Tooltip("パス時の放物線の最大高さ（m）— 実際は距離に応じて上限適用")]
+	public float arcHeight = 0.35f;
 	[Tooltip("ターゲットの高さ（胸の高さを想定）")]
 	public float targetHeight = 1.2f;
 	[Tooltip("最小パス距離（近すぎる相手はスキップ）")]
@@ -54,9 +51,9 @@ public class BallPassController : MonoBehaviour
 	public float speedAcceleration = 2.0f;
 	[Tooltip("現在の目標速度")]
 	[Range(1f, 30f)]
-	public float targetSpeed = 4.0f;
+	public float targetSpeed = 7.0f;
 	[Tooltip("速度プリセット")]
-	public SpeedPreset speedPreset = SpeedPreset.Normal;
+	public SpeedPreset speedPreset = SpeedPreset.Fast;
 	[Tooltip("キーボードで速度調整を有効にする")]
 	public bool enableKeyboardControl = true;
 	[Tooltip("キーボード速度調整の刻み値")]
@@ -94,6 +91,7 @@ public class BallPassController : MonoBehaviour
 
 	private float _movementLogTimer = 0f;
 	private Vector3 _lastLoggedPos;
+	private float _actualSpeed = 0f; // 実測の現在速度（m/s）
 
 	private Transform _ball; // シーンの Ball オブジェクト
 	private Rigidbody _rb;
@@ -246,14 +244,44 @@ public class BallPassController : MonoBehaviour
 			// パス位置を定期的に更新（カプセルの動きに対応）
 			UpdatePassPositions();
 
-			// 進捗ベースで移動（速度 → 時間あたりの進捗量に変換）
-			float deltaT = _travelDistance > 0.0001f ? (passSpeed / _travelDistance) * Time.deltaTime : 1f * Time.deltaTime;
-			_passT = Mathf.Min(1f, _passT + deltaT);
+			// 進捗ベースで移動（放物線でも実速度が極力一定になるよう補正）
+			if (_travelDistance < 0.0001f)
+			{
+				_passT = Mathf.Min(1f, _passT + Time.deltaTime);
+			}
+			else
+			{
+				// 基本の進捗増分
+				float baseDeltaT = (passSpeed / _travelDistance) * Time.deltaTime;
+				// 放物線の垂直成分による見かけ速度増を補正
+				// dy/dt = pi*arcHeight*cos(pi*t) → 実速度係数 ≈ sqrt(1 + (dy/ds)^2)
+				float k = (Mathf.PI * Mathf.Max(0f, arcHeight)) / Mathf.Max(0.001f, _travelDistance);
+				float cosTerm = Mathf.Cos(_passT * Mathf.PI);
+				float speedFactor = Mathf.Sqrt(1f + (k * k * cosTerm * cosTerm));
+				float deltaT = baseDeltaT / speedFactor;
+				_passT = Mathf.Min(1f, _passT + deltaT);
+			}
 			Vector3 pos = Vector3.Lerp(_startPos, _endPos, _passT);
 
 			// 放物線の高さを計算（固定値を使用）
-			float heightOffset = Mathf.Sin(_passT * Mathf.PI) * arcHeight;
+			// 距離に応じて放物線高さを抑制（近距離: ほぼフラット / 中距離: 緩やか）
+			float dist = Mathf.Max(0f, _travelDistance);
+			float maxArc = arcHeight;
+			// 10mで上限そのまま、5mで50%、2mで20%程度になるようにスケール
+			float scale = Mathf.Clamp01(dist / 10f);
+			// 近距離の最低比率を0.35に上げ、少しだけ弧を強める
+			float scaledArc = maxArc * (0.35f + 0.65f * scale);
+			float heightOffset = Mathf.Sin(_passT * Mathf.PI) * scaledArc;
 			pos.y += heightOffset;
+
+			// 実移動をハード上限で制限して初期の急加速を防ぐ
+			Vector3 prev = _ball.position;
+			Vector3 step = pos - prev;
+			float maxStep = Mathf.Max(0f, targetSpeed) * Time.deltaTime;
+			if (step.magnitude > maxStep && maxStep > 0f)
+			{
+				pos = prev + step.normalized * maxStep;
+			}
 			MoveBall(pos);
 
 			// 目標に到達したらホールドへ
@@ -301,6 +329,13 @@ public class BallPassController : MonoBehaviour
 			}
 		}
 
+		// 実速度の更新
+		if (_ball != null)
+		{
+			_actualSpeed = Vector3.Distance(_ball.position, _lastLoggedPos) / Mathf.Max(0.0001f, Time.deltaTime);
+			_lastLoggedPos = _ball.position;
+		}
+
 		// 移動確認ログ
 		if (logMovement)
 		{
@@ -337,18 +372,7 @@ public class BallPassController : MonoBehaviour
 		Vector3 fromPos = GetTargetPosition(from);
 		Vector3 toPos = GetTargetPosition(to);
 
-		// 初回パスのみ、再生直後に保存した初期位置から開始・宛先を決定
-		if (_firstPassUsesInitialAnchors)
-		{
-			if (_initialAnchorPositions.TryGetValue(from, out var savedFrom))
-			{
-				fromPos = savedFrom;
-			}
-			if (_initialAnchorPositions.TryGetValue(to, out var savedTo))
-			{
-				toPos = savedTo;
-			}
-		}
+		// 初回の特別なアンカー上書きは行わない（常に現在位置ベース）
 
 		if (Vector3.Distance(fromPos, toPos) < minPassDistance)
 		{
@@ -388,11 +412,7 @@ public class BallPassController : MonoBehaviour
 
 		// エンターキー押下直後のワープを防ぐため、ボールの現在位置から開始
 		_startPos = _ball.position;
-		// 初回パスのみ、再生直後に保存した初期位置を宛先に使用
-		if (_firstPassUsesInitialAnchors && _initialAnchorPositions.TryGetValue(_teammates[nextIndex], out var savedToInitial))
-		{
-			toPos = savedToInitial;
-		}
+		// 宛先は常に現在の受け手の位置
 		_endPos = toPos;
 		_travelDistance = Vector3.Distance(_startPos, _endPos);
 
@@ -405,8 +425,7 @@ public class BallPassController : MonoBehaviour
 		_isMoving = true;
 		_currentIndex = nextIndex;
 
-		// 初回パス完了後は以降、現在位置を使用
-		_firstPassUsesInitialAnchors = false;
+		// 以降も常に現在位置を使用
 
 		// パス回数をカウント
 		if (enablePassCounter)
@@ -461,7 +480,7 @@ public class BallPassController : MonoBehaviour
 	public void ResumePassing()
 	{
 		RefreshTeammates();
-		_waitingForStart = false;
+		// 開始フラグは直前でのみ降ろす（早期にfalseにしない）
 
 		// エンター押下直後は1.0秒間、全エージェントの高さ変化を停止
 		if (CourtManager.Instance != null)
@@ -469,8 +488,9 @@ public class BallPassController : MonoBehaviour
 			CourtManager.Instance.FreezeHeightVariationFor(1.0f);
 		}
 
-		// エンター押下直前と直後で座標が一致するよう、同チームの全カプセルを短時間だけ静止
-		FreezeTeammatePositions(0.1f);
+		// エンター押下後は1.0秒間、同チームの全カプセルを完全凍結
+		FreezeTeammatePositions(1.0f);
+		FreezeTeammateFor(1.0f);
 
 		// 既にパスが進行中の場合は何もしない
 		if (_isMoving)
@@ -486,6 +506,7 @@ public class BallPassController : MonoBehaviour
 		if (_holdTimer > 0f)
 		{
 			_holdTimer = 0f;
+			_waitingForStart = false;
 			BeginNextPass();
 		}
 		else if (_waitingForStart)
@@ -495,6 +516,7 @@ public class BallPassController : MonoBehaviour
 			{
 				Debug.Log($"BallPassController: 初回エンターキー押下 - 現在のインデックス: {_currentIndex}, カプセル: {(_teammates.Count > _currentIndex ? _teammates[_currentIndex].name : "なし")}");
 			}
+			_waitingForStart = false;
 			BeginNextPass();
 		}
 	}
@@ -514,14 +536,28 @@ public class BallPassController : MonoBehaviour
 		}
 	}
 
+	// 同チームの全カプセルを duration 秒だけ完全凍結（外力無視）
+	private void FreezeTeammateFor(float duration)
+	{
+		for (int i = 0; i < _teammates.Count; i++)
+		{
+			var t = _teammates[i];
+			if (t == null) continue;
+			var agent = t.GetComponent<BasketballAgentController>();
+			if (agent != null)
+			{
+				agent.FreezeFor(duration);
+			}
+		}
+	}
+
 	private void SnapBallToTeamAnchor()
 	{
 		if (_ball == null) return;
 		RefreshTeammates();
 		Transform anchor = null;
 		string teamPrefix = passTeam == PassTeam.White ? "capsule-w" : "capsule-b";
-		int anchorNumber = idleCapsuleNumber > 0 ? idleCapsuleNumber : startCapsuleNumber;
-		string anchorName = $"{teamPrefix}-{anchorNumber}";
+		string anchorName = $"{teamPrefix}-1";
 
 		for (int i = 0; i < _teammates.Count; i++)
 		{
@@ -547,10 +583,6 @@ public class BallPassController : MonoBehaviour
 		if (anchor != null)
 		{
 			MoveBall(GetTargetPosition(anchor));
-			if (enableDebugLogs)
-			{
-				Debug.Log($"BallPassController: パス開始位置を {anchor.name} に設定しました (idleCapsuleNumber={(idleCapsuleNumber > 0 ? idleCapsuleNumber : startCapsuleNumber)})");
-			}
 		}
 	}
 
@@ -822,21 +854,7 @@ public class BallPassController : MonoBehaviour
 		}
 	}
 
-	// 開始カプセル番号を設定するAPI
-	public void SetStartCapsuleNumber(int capsuleNumber)
-	{
-		startCapsuleNumber = Mathf.Max(1, capsuleNumber);
-		if (enableDebugLogs)
-		{
-			Debug.Log($"BallPassController: 開始カプセル番号を {startCapsuleNumber} に設定しました");
-		}
-	}
-
-	// 開始カプセル番号を取得するAPI
-	public int GetStartCapsuleNumber()
-	{
-		return startCapsuleNumber;
-	}
+	// 開始カプセル番号関連APIは廃止
 
 	// 予測機能のオンオフを設定するAPI
 	public void SetPredictionEnabled(bool enabled)
@@ -930,10 +948,10 @@ public class BallPassController : MonoBehaviour
 		// 終了位置を常に更新（受け手の動きに対応）
 		_endPos = newToPos;
 
-		// 開始位置はパスの進捗に応じて更新
-		if (_passT < 0.1f) // パス開始直後は開始位置も更新
+		// 開始位置はパス開始直後のみ、現在のボール位置で補正（ワープ防止）
+		if (_passT < 0.1f)
 		{
-			_startPos = newFromPos;
+			_startPos = _ball.position;
 		}
 
 		_travelDistance = Vector3.Distance(_startPos, _endPos);
@@ -947,12 +965,13 @@ public class BallPassController : MonoBehaviour
 	// 速度情報とパス回数を画面に表示
 	private void OnGUI()
 	{
-		// 速度情報の表示
+		// 速度情報の表示（実測速度を追加）
 		if (showSpeedInfo)
 		{
 			GUILayout.BeginArea(new Rect(10, 10, 300, 200));
 			GUILayout.Label("=== ボール速度調整 ===", GUI.skin.box);
-			GUILayout.Label($"現在の速度: {passSpeed:F1} m/s");
+			GUILayout.Label($"目標速度(設定): {targetSpeed:F1} m/s");
+			GUILayout.Label($"実測速度: {_actualSpeed:F2} m/s");
 			GUILayout.Label($"目標速度: {targetSpeed:F1} m/s");
 			GUILayout.Label($"プリセット: {speedPreset}");
 			GUILayout.Space(10);
