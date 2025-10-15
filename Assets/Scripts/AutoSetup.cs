@@ -29,6 +29,10 @@ public class AutoSetup : MonoBehaviour
     public bool setupBallPass = true;
     public BallPassController.PassTeam defaultPassTeam = BallPassController.PassTeam.White;
 
+    [Header("Ball2 Pass Setup")]
+    public bool setupBall2Pass = true;
+    public Ball2PassController.PassTeam ball2PassTeam = Ball2PassController.PassTeam.Black;
+
     [Header("Rendering Settings")]
     [Tooltip("リフレクションプローブ設定を一括調整する")]
     public bool adjustReflectionProbes = true;
@@ -48,6 +52,10 @@ public class AutoSetup : MonoBehaviour
         if (setupBallPass)
         {
             SetupBallPass();
+        }
+        if (setupBall2Pass)
+        {
+            SetupBall2Pass();
         }
         if (adjustReflectionProbes)
         {
@@ -176,11 +184,11 @@ public class AutoSetup : MonoBehaviour
 
     private void SetupBallPass()
     {
-        // ball を探してコントローラをアタッチ
-        GameObject ball = GameObject.Find("ball");
+        // Ball を探してコントローラをアタッチ
+        GameObject ball = GameObject.Find("Ball");
         if (ball == null)
         {
-            Debug.LogWarning("AutoSetup: ball が見つかりませんでした。");
+            Debug.LogWarning("AutoSetup: Ball が見つかりませんでした。");
             return;
         }
 
@@ -190,18 +198,72 @@ public class AutoSetup : MonoBehaviour
             ctrl = ball.AddComponent<BallPassController>();
         }
         ctrl.passTeam = defaultPassTeam;
+
+        // BallはCapsule-w-1から開始、待機時はCapsule-w-2に表示
+        ctrl.startCapsuleNumber = 1; // パス開始元
+        ctrl.idleCapsuleNumber = 2;  // エンター押下前の待機位置
+
+        // Ballの精度設定を最適化
+        ctrl.enablePreciseLanding = true;
+        ctrl.enablePrediction = false;
+
+        // Ballのパスタイミングを調整
+        ctrl.passPauseDuration = 2.5f; // パス時の静止時間を2.5秒に延長
+        ctrl.holdTimeAtReceiver = 0.8f; // 受け手での保持時間を0.8秒に延長
+    }
+
+    private void SetupBall2Pass()
+    {
+        // Ball2 を探してコントローラをアタッチ
+        GameObject ball2 = GameObject.Find("Ball2");
+        if (ball2 == null)
+        {
+            Debug.LogWarning("AutoSetup: Ball2 が見つかりませんでした。");
+            return;
+        }
+
+        Ball2PassController ctrl = ball2.GetComponent<Ball2PassController>();
+        if (ctrl == null)
+        {
+            ctrl = ball2.AddComponent<Ball2PassController>();
+        }
+        ctrl.passTeam = ball2PassTeam;
+
+        // Ball2はCapsule-b-1から開始、待機時はCapsule-b-2に表示
+        ctrl.startCapsuleNumber = 1; // パス開始元
+        ctrl.idleCapsuleNumber = 2;  // エンター押下前の待機位置
+
+        // Ball2の自動開始を無効にする（エンターキー待ち）
+        ctrl.autoStart = false;
+
+        // Ball2のデバッグログを有効にする
+        ctrl.enableDebugLogs = true;
+
+        // Ball2のキーボード制御を有効にする
+        ctrl.enableKeyboardControl = true;
+
+        // Ball2の精度設定を最適化
+        ctrl.enablePreciseLanding = true;
+        ctrl.enablePrediction = false;
+
+        // Ball2のパスタイミングを調整
+        ctrl.passPauseDuration = 2.5f; // パス時の静止時間を2.5秒に延長
+        ctrl.holdTimeAtReceiver = 0.8f; // 受け手での保持時間を0.8秒に延長
     }
 
     private void ApplyReflectionProbeSettings()
     {
-        // 対象: ball と 各エージェント（子も含む）
+        // 対象: Ball と 各エージェント（子も含む）
         var targets = agentNames
             .Select(GameObject.Find)
             .Where(go => go != null)
             .ToList();
 
-        var ball = GameObject.Find("ball");
+        var ball = GameObject.Find("Ball");
         if (ball != null) targets.Add(ball);
+
+        var ball2 = GameObject.Find("Ball2");
+        if (ball2 != null) targets.Add(ball2);
 
         foreach (var root in targets)
         {

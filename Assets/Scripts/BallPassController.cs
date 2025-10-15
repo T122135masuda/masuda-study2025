@@ -14,6 +14,8 @@ public class BallPassController : MonoBehaviour
 	public PassTeam passTeam = PassTeam.White;
 	[Tooltip("パス開始時の基準カプセル番号（1, 2, 3など）")]
 	public int startCapsuleNumber = 2;
+	[Tooltip("待機（エンター押下前）に表示するカプセル番号。未指定時はstartCapsuleNumberを使用")]
+	public int idleCapsuleNumber = 0;
 	[Tooltip("予測位置計算を有効にする（無効にすると直線的なパスになる）")]
 	public bool enablePrediction = false;
 	[Tooltip("着地点の精度を向上させる（カプセルの中心を正確に計算）")]
@@ -22,11 +24,11 @@ public class BallPassController : MonoBehaviour
 	public bool enablePassPause = true;
 	[Tooltip("パス時の静止時間（秒）")]
 	[Range(0.1f, 3.0f)]
-	public float passPauseDuration = 1.5f;
+	public float passPauseDuration = 2.5f;
 	[Tooltip("ボールの移動速度（m/s）")]
 	public float passSpeed = 4.0f;
 	[Tooltip("受け手に到達後に保持する時間（秒）")]
-	public float holdTimeAtReceiver = 0.25f;
+	public float holdTimeAtReceiver = 0.8f;
 	[Tooltip("パス時の放物線の高さ（m）")]
 	public float arcHeight = 0.7f;
 	[Tooltip("ターゲットの高さ（胸の高さを想定）")]
@@ -93,7 +95,7 @@ public class BallPassController : MonoBehaviour
 	private float _movementLogTimer = 0f;
 	private Vector3 _lastLoggedPos;
 
-	private Transform _ball; // シーンの ball オブジェクト
+	private Transform _ball; // シーンの Ball オブジェクト
 	private Rigidbody _rb;
 	private List<Transform> _teammates = new List<Transform>();
 	private int _currentIndex = 0;
@@ -105,7 +107,7 @@ public class BallPassController : MonoBehaviour
 	private float _travelDistance;
 	private float _passT = 0f; // 0→1 の進捗
 	private bool _waitingForStart = true; // 外部トリガー待機
-	
+
 	// パス回数カウント用
 	private int _totalPassCount = 0; // 総パス回数
 	private int _currentSessionPassCount = 0; // 現在のセッションのパス回数
@@ -123,8 +125,8 @@ public class BallPassController : MonoBehaviour
 		_totalPassCount = 0;
 		_currentSessionPassCount = 0;
 
-		// ball を名前で取得（大文字小文字や部分一致にもある程度対応）
-		var ballGo = GameObject.Find("ball");
+		// Ball を名前で取得（大文字小文字や部分一致にもある程度対応）
+		var ballGo = GameObject.Find("Ball");
 		if (ballGo == null)
 		{
 			foreach (var t in FindObjectsOfType<Transform>())
@@ -138,7 +140,7 @@ public class BallPassController : MonoBehaviour
 		}
 		if (ballGo == null)
 		{
-			Debug.LogWarning("BallPassController: 'ball' オブジェクトが見つかりません。");
+			Debug.LogWarning("BallPassController: 'Ball' オブジェクトが見つかりません。");
 			enabled = false;
 			return;
 		}
@@ -171,6 +173,12 @@ public class BallPassController : MonoBehaviour
 
 	private void Update()
 	{
+		// キーボード入力の処理
+		if (enableKeyboardControl)
+		{
+			HandleKeyboardInput();
+		}
+
 		// 速度調整の処理
 		if (enableSpeedControl)
 		{
@@ -199,12 +207,12 @@ public class BallPassController : MonoBehaviour
 		{
 			// パス位置を定期的に更新（カプセルの動きに対応）
 			UpdatePassPositions();
-			
+
 			// 進捗ベースで移動（速度 → 時間あたりの進捗量に変換）
 			float deltaT = _travelDistance > 0.0001f ? (passSpeed / _travelDistance) * Time.deltaTime : 1f * Time.deltaTime;
 			_passT = Mathf.Min(1f, _passT + deltaT);
 			Vector3 pos = Vector3.Lerp(_startPos, _endPos, _passT);
-			
+
 			// 放物線の高さを計算（固定値を使用）
 			float heightOffset = Mathf.Sin(_passT * Mathf.PI) * arcHeight;
 			pos.y += heightOffset;
@@ -215,21 +223,23 @@ public class BallPassController : MonoBehaviour
 			{
 				_isMoving = false;
 				_holdTimer = holdTimeAtReceiver;
-				
-				// パス時の静止機能（受け手を静止させる）
+
+				// パス時の静止機能（受け手の静止を解除し、保持時間分だけ静止）
 				if (enablePassPause && _teammates.Count > _currentIndex)
 				{
 					var toAgent = _teammates[_currentIndex].GetComponent<BasketballAgentController>();
 					if (toAgent != null)
 					{
-						toAgent.SetIdleState(true, passPauseDuration);
+						// 受け手の静止を解除してから、保持時間分だけ静止
+						toAgent.SetIdleState(false, 0f);
+						toAgent.SetIdleState(true, holdTimeAtReceiver);
 						if (enableDebugLogs)
 						{
-							Debug.Log($"BallPassController: {_teammates[_currentIndex].name} を {passPauseDuration}秒間静止");
+							Debug.Log($"BallPassController: {_teammates[_currentIndex].name} の静止を解除し、{holdTimeAtReceiver}秒間保持");
 						}
 					}
 				}
-				
+
 				if (enableDebugLogs)
 				{
 					Debug.Log($"BallPassController: arrived receiver index={_currentIndex}, pos={_ball.position}");
@@ -296,11 +306,8 @@ public class BallPassController : MonoBehaviour
 			return;
 		}
 
-		// ボールを送出元にスナップ（開始が遠すぎる場合の保険）
-		if (Vector3.Distance(_ball.position, fromPos) > 0.3f)
-		{
-			MoveBall(fromPos);
-		}
+		// ボールの現在位置から滑らかにパスを開始（ワープを防ぐ）
+		// スナップ処理を削除して、ボールの現在位置を尊重
 
 		// パス時の静止機能
 		if (enablePassPause)
@@ -315,15 +322,33 @@ public class BallPassController : MonoBehaviour
 					Debug.Log($"BallPassController: {from.name} を {passPauseDuration}秒間静止");
 				}
 			}
+
+			// 受け手もパス移動中は静止させる
+			var toAgent = to.GetComponent<BasketballAgentController>();
+			if (toAgent != null)
+			{
+				toAgent.SetIdleState(true, passPauseDuration);
+				if (enableDebugLogs)
+				{
+					Debug.Log($"BallPassController: {to.name} をパス移動中に静止");
+				}
+			}
 		}
 
-		_startPos = fromPos;
+		// エンターキー押下直後のワープを防ぐため、ボールの現在位置から開始
+		_startPos = _ball.position;
 		_endPos = toPos;
 		_travelDistance = Vector3.Distance(_startPos, _endPos);
+
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: パス開始 - 開始位置: {_startPos}, 終了位置: {_endPos}, 距離: {_travelDistance}");
+			Debug.Log($"BallPassController: 送り手位置: {fromPos}, ボール位置: {_ball.position}");
+		}
 		_passT = 0f;
 		_isMoving = true;
 		_currentIndex = nextIndex;
-		
+
 		// パス回数をカウント
 		if (enablePassCounter)
 		{
@@ -334,7 +359,7 @@ public class BallPassController : MonoBehaviour
 				Debug.Log($"BallPassController: Pass #{_totalPassCount} started from {from.name} to {to.name}");
 			}
 		}
-		
+
 		if (enableDebugLogs)
 		{
 			Debug.Log($"BallPassController: pass {_startPos} -> {_endPos}, dist={_travelDistance}");
@@ -352,12 +377,13 @@ public class BallPassController : MonoBehaviour
 		_ball.position = position;
 	}
 
+
 	// 手動開始用API
 	public void StartPassingNow()
 	{
 		RefreshTeammates();
 		_waitingForStart = false;
-		
+
 		// 既にパスが進行中の場合は新しいパスを開始しない
 		if (_isMoving)
 		{
@@ -367,7 +393,7 @@ public class BallPassController : MonoBehaviour
 			}
 			return;
 		}
-		
+
 		_holdTimer = 0f;
 		BeginNextPass();
 	}
@@ -377,7 +403,7 @@ public class BallPassController : MonoBehaviour
 	{
 		RefreshTeammates();
 		_waitingForStart = false;
-		
+
 		// 既にパスが進行中の場合は何もしない
 		if (_isMoving)
 		{
@@ -387,11 +413,20 @@ public class BallPassController : MonoBehaviour
 			}
 			return;
 		}
-		
+
 		// 待機中の場合のみ次のパスを開始
 		if (_holdTimer > 0f)
 		{
 			_holdTimer = 0f;
+			BeginNextPass();
+		}
+		else if (_waitingForStart)
+		{
+			// 初回のエンターキー押下時：現在の位置から次のカプセルへのパスを開始
+			if (enableDebugLogs)
+			{
+				Debug.Log($"BallPassController: 初回エンターキー押下 - 現在のインデックス: {_currentIndex}, カプセル: {(_teammates.Count > _currentIndex ? _teammates[_currentIndex].name : "なし")}");
+			}
 			BeginNextPass();
 		}
 	}
@@ -402,8 +437,9 @@ public class BallPassController : MonoBehaviour
 		RefreshTeammates();
 		Transform anchor = null;
 		string teamPrefix = passTeam == PassTeam.White ? "capsule-w" : "capsule-b";
-		string anchorName = $"{teamPrefix}-{startCapsuleNumber}";
-		
+		int anchorNumber = idleCapsuleNumber > 0 ? idleCapsuleNumber : startCapsuleNumber;
+		string anchorName = $"{teamPrefix}-{anchorNumber}";
+
 		for (int i = 0; i < _teammates.Count; i++)
 		{
 			if (_teammates[i].name.ToLower().Contains(anchorName))
@@ -413,7 +449,7 @@ public class BallPassController : MonoBehaviour
 				break;
 			}
 		}
-		
+
 		// 指定されたカプセルが見つからない場合は、最初のカプセルを使用
 		if (anchor == null && _teammates.Count > 0)
 		{
@@ -424,13 +460,13 @@ public class BallPassController : MonoBehaviour
 				Debug.LogWarning($"BallPassController: {anchorName} が見つかりません。{anchor.name} を使用します。");
 			}
 		}
-		
+
 		if (anchor != null)
 		{
 			MoveBall(GetTargetPosition(anchor));
 			if (enableDebugLogs)
 			{
-				Debug.Log($"BallPassController: パス開始位置を {anchor.name} に設定しました");
+				Debug.Log($"BallPassController: パス開始位置を {anchor.name} に設定しました (idleCapsuleNumber={(idleCapsuleNumber > 0 ? idleCapsuleNumber : startCapsuleNumber)})");
 			}
 		}
 	}
@@ -439,24 +475,10 @@ public class BallPassController : MonoBehaviour
 	{
 		Vector3 pos = agent.position;
 		var agentController = agent.GetComponent<BasketballAgentController>();
-		
-		// 予測位置計算（オプション）
-		if (enablePrediction && agentController != null)
-		{
-			// エージェントの移動速度を予測に使用
-			Vector3 velocity = agentController.GetCurrentVelocity();
-			if (velocity.magnitude > 0.1f)
-			{
-				// パス速度に応じた予測時間を計算
-				float predictionTime = 0.15f; // 0.15秒先を予測
-				pos += velocity * predictionTime;
-			}
-		}
-		
-		// 着地点の精度を向上させる
+
+		// 着地点の精度を向上させる（CharacterControllerの中心位置を考慮）
 		if (enablePreciseLanding && agentController != null)
 		{
-			// CharacterControllerの中心位置を考慮
 			var cc = agent.GetComponent<CharacterController>();
 			if (cc != null)
 			{
@@ -464,10 +486,28 @@ public class BallPassController : MonoBehaviour
 				pos = agent.position + cc.center;
 			}
 		}
-		
-		// 着地点の高さを設定
+
+		// 予測位置計算（オプション）- 着地点計算後に適用
+		if (enablePrediction && agentController != null)
+		{
+			// エージェントの移動速度を予測に使用
+			Vector3 velocity = agentController.GetCurrentVelocity();
+			if (velocity.magnitude > 0.1f)
+			{
+				// パス速度に応じた予測時間を計算（より短い時間で精度向上）
+				float predictionTime = 0.1f; // 0.1秒先を予測
+				pos += velocity * predictionTime;
+			}
+		}
+
+		// 着地点の高さを設定（胸の高さ）
 		pos.y += targetHeight;
-		
+
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: GetTargetPosition for {agent.name} = {pos} (base: {agent.position})");
+		}
+
 		return pos;
 	}
 
@@ -479,28 +519,40 @@ public class BallPassController : MonoBehaviour
 		{
 			if (agent == null) continue;
 			string name = agent.gameObject.name.ToLower();
-			
+
 			// HumanM_Modelはパスに参加させない
 			if (name.Contains("humanm_model"))
 			{
 				continue;
 			}
-			
+
 			bool isWhite = name.Contains("capsule-w");
 			bool isBlack = name.Contains("capsule-b");
 			if (passTeam == PassTeam.White && isWhite)
 			{
 				_teammates.Add(agent.transform);
+				if (enableDebugLogs)
+				{
+					Debug.Log($"BallPassController: White team member added: {agent.gameObject.name}");
+				}
 			}
 			else if (passTeam == PassTeam.Black && isBlack)
 			{
 				_teammates.Add(agent.transform);
+				if (enableDebugLogs)
+				{
+					Debug.Log($"BallPassController: Black team member added: {agent.gameObject.name}");
+				}
 			}
 		}
 		// インデックスの正規化
 		if (_teammates.Count > 0)
 		{
 			_currentIndex = Mathf.Clamp(_currentIndex, 0, _teammates.Count - 1);
+		}
+		if (enableDebugLogs)
+		{
+			Debug.Log($"BallPassController: RefreshTeammates completed. Team: {passTeam}, Count: {_teammates.Count}");
 		}
 	}
 
@@ -522,7 +574,7 @@ public class BallPassController : MonoBehaviour
 
 		// プリセットが変更された場合は適用
 		ApplySpeedPreset();
-		
+
 		// 目標速度に向かって現在の速度を調整
 		if (Mathf.Abs(passSpeed - targetSpeed) > 0.1f)
 		{
@@ -530,7 +582,7 @@ public class BallPassController : MonoBehaviour
 			float oldSpeed = passSpeed;
 			passSpeed += direction * speedAcceleration * Time.deltaTime;
 			passSpeed = Mathf.Clamp(passSpeed, minSpeed, maxSpeed);
-			
+
 			// 速度変更時にパス位置を更新
 			if (_isMoving)
 			{
@@ -583,6 +635,16 @@ public class BallPassController : MonoBehaviour
 		if (Input.GetKeyDown(KeyCode.R) && enablePassCounter)
 		{
 			ResetPassCount();
+		}
+
+		// エンターキーでパス開始/再開
+		if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+		{
+			if (enableDebugLogs)
+			{
+				Debug.Log("BallPassController: エンターキーが押されました。パスを開始/再開します。");
+			}
+			ResumePassing();
 		}
 	}
 
@@ -738,7 +800,7 @@ public class BallPassController : MonoBehaviour
 	// パス時の静止時間を設定するAPI
 	public void SetPassPauseDuration(float duration)
 	{
-		passPauseDuration = Mathf.Clamp(duration, 0.1f, 2.0f);
+		passPauseDuration = Mathf.Clamp(duration, 0.1f, 3.0f);
 		if (enableDebugLogs)
 		{
 			Debug.Log($"BallPassController: パス時の静止時間を {passPauseDuration}秒 に設定しました");
@@ -784,7 +846,7 @@ public class BallPassController : MonoBehaviour
 
 		// 終了位置を常に更新（受け手の動きに対応）
 		_endPos = newToPos;
-		
+
 		// 開始位置はパスの進捗に応じて更新
 		if (_passT < 0.1f) // パス開始直後は開始位置も更新
 		{
@@ -825,7 +887,7 @@ public class BallPassController : MonoBehaviour
 			GUIStyle style = new GUIStyle(GUI.skin.label);
 			style.fontSize = passCountFontSize;
 			style.normal.textColor = Color.white;
-			
+
 			GUILayout.BeginArea(new Rect(passCountDisplayOffset.x, passCountDisplayOffset.y, 300, 100));
 			GUILayout.Label("=== パス回数 ===", GUI.skin.box);
 			GUILayout.Label($"総パス回数: {_totalPassCount}", style);
