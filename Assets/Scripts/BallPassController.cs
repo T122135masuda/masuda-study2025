@@ -21,11 +21,11 @@ public class BallPassController : MonoBehaviour
 	public bool enablePassPause = true;
 	[Tooltip("パス時の静止時間（秒）")]
 	[Range(0.1f, 3.0f)]
-	public float passPauseDuration = 2.5f;
+	public float passPauseDuration = 1.0f;
 	[Tooltip("ボールの移動速度（m/s）")]
 	public float passSpeed = 7.0f;
 	[Tooltip("受け手に到達後に保持する時間（秒）")]
-	public float holdTimeAtReceiver = 0.4f;
+	public float holdTimeAtReceiver = 0.2f;
 	[Tooltip("パス時の放物線の最大高さ（m）— 実際は距離に応じて上限適用")]
 	public float arcHeight = 0.35f;
 	[Tooltip("ターゲットの高さ（胸の高さを想定）")]
@@ -156,7 +156,8 @@ public class BallPassController : MonoBehaviour
 			Debug.Log($"BallPassController: teammates={_teammates.Count}, team={passTeam}");
 			Debug.Log($"BallPassController: パス回数初期化完了 (総:{_totalPassCount}, セッション:{_currentSessionPassCount})");
 		}
-		_waitingForStart = !autoStart;
+		// エンター押下までは常に待機
+		_waitingForStart = true;
 		// 再生直後は1フレーム待ってから現在のカプセル位置を取得して初期配置
 		StartCoroutine(InitializeAnchorsAtRuntime());
 	}
@@ -471,9 +472,9 @@ public class BallPassController : MonoBehaviour
 			CourtManager.Instance.FreezeHeightVariationFor(1.0f);
 		}
 
-		// エンター押下後は1.0秒間、同チームの全カプセルを完全凍結
-		FreezeTeammatePositions(1.0f);
-		FreezeTeammateFor(1.0f);
+		// エンター押下後は0.5秒間、同チームの全カプセルを完全凍結
+		FreezeTeammatePositions(0.5f);
+		FreezeTeammateFor(0.5f);
 
 		// 既にパスが進行中の場合は何もしない
 		if (_isMoving)

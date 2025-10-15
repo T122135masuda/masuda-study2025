@@ -6,63 +6,63 @@ public class BasketballAgentController : MonoBehaviour
 {
     [Header("Move Params")]
     [Tooltip("最大移動速度（m/s）")]
-    public float maxSpeed = 5.0f; // 3.5fから5.0fに向上
+    public float maxSpeed = 7.0f; // より高速に
     [Tooltip("加速度（m/s²）")]
-    public float acceleration = 12f; // 8fから12fに向上
+    public float acceleration = 20f; // 立ち上がり強化
     [Tooltip("回転速度（度/秒）")]
-    public float turnSpeedDegPerSec = 720f; // 540fから720fに向上
+    public float turnSpeedDegPerSec = 1080f; // 旋回性アップ
 
     [Header("Random Wander")]
     [Tooltip("ワンダーのランダム性")]
-    public float wanderJitter = 2.5f; // 大幅強化
+    public float wanderJitter = 4.0f; // ランダム性強化
     [Tooltip("ワンダー半径")]
-    public float wanderRadius = 4.0f; // 大幅拡大
+    public float wanderRadius = 5.5f; // 軌道を広げる
     [Tooltip("ワンダー距離")]
-    public float wanderDistance = 3.5f; // 大幅拡大
+    public float wanderDistance = 5.0f; // 前方距離拡大
 
     [Header("Separation / Avoidance")]
     [Tooltip("分離半径")]
-    public float separationRadius = 1.0f;
+    public float separationRadius = 0.8f; // 密集しにくく
     [Tooltip("回避半径")]
-    public float avoidanceRadius = 1.6f;
+    public float avoidanceRadius = 1.4f; // 邪魔を回避
     [Tooltip("分離の強さ")]
-    public float separationStrength = 4f;
+    public float separationStrength = 6.0f; // 押し出し強化
     [Tooltip("回避の強さ")]
-    public float avoidanceStrength = 7f;
+    public float avoidanceStrength = 10f; // 回避強化
 
     [Header("Boundary")]
     [Tooltip("境界からの余裕距離")]
-    public float boundaryPadding = 0.4f; // 端から少し内側を保つ
+    public float boundaryPadding = 0.3f; // 端に寄りすぎない範囲で緩和
     [Tooltip("境界押し戻しの強さ")]
     public float boundaryPushStrength = 6f;
     [Tooltip("境界からの距離に応じた力の倍率")]
-    public float boundaryForceMultiplier = 2.0f; // 境界からの距離に応じた力の倍率
+    public float boundaryForceMultiplier = 2.5f; // 押し戻し強め
     [Tooltip("最大境界押し戻し力")]
     public float maxBoundaryForce = 15f; // 最大境界押し戻し力
     [Tooltip("Z軸方向の追加パディング")]
     public float zBoundaryExtraPadding = 0.8f; // Z軸方向の追加パディング
     [Tooltip("予測的境界チェック距離")]
-    public float predictiveBoundaryDistance = 1.0f; // 予測的境界チェック距離
+    public float predictiveBoundaryDistance = 1.5f; // 早めに境界対応
 
     [Header("Wall Avoidance")]
     [Tooltip("壁検出距離")]
     public float wallDetectDistance = 1.0f; // 壁からこの距離以内で回避
     [Tooltip("壁回避の強さ")]
-    public float wallAvoidStrength = 10f;
+    public float wallAvoidStrength = 14f; // 壁際での切替強化
 
     [Header("Human-like Movement")]
     [Tooltip("停止する確率（0-1）")]
     [Range(0f, 0.1f)]
-    public float idleChance = 0.02f; // 停止する確率
+    public float idleChance = 0.01f; // 止まりにくく
     [Tooltip("方向転換する確率（0-1）")]
     [Range(0f, 0.2f)]
-    public float directionChangeChance = 0.15f; // 方向転換する確率（強化）
+    public float directionChangeChance = 0.25f; // 向き替え頻度アップ
     [Tooltip("ダッシュする確率（0-1）")]
     [Range(0f, 0.3f)]
-    public float sprintChance = 0.20f; // ダッシュする確率（強化）
+    public float sprintChance = 0.32f; // ダッシュ頻度アップ
     [Tooltip("ダッシュ時の速度倍率")]
     [Range(1f, 3f)]
-    public float sprintMultiplier = 1.8f; // ダッシュ時の速度倍率
+    public float sprintMultiplier = 2.2f; // ダッシュ速度アップ
 
     [Header("Team Play")]
     [Tooltip("チームメイトとの結束距離")]
@@ -76,7 +76,7 @@ public class BasketballAgentController : MonoBehaviour
     [Tooltip("相手チーム回避の強さ")]
     public float opponentAvoidanceStrength = 0.5f; // 相手チーム回避の強さ（大幅弱化）
     [Tooltip("チーム混在を促進する力")]
-    public float teamMixingStrength = 2.0f; // チーム混在を促進する力（強化）
+    public float teamMixingStrength = 2.8f; // 混在促進強化
     [Tooltip("チーム関連の力を無効化する")]
     public bool disableTeamForces = true; // チーム関連の力を無効化
 
@@ -134,6 +134,19 @@ public class BasketballAgentController : MonoBehaviour
     private float _sprintDuration = 0f;
     private int _agentId = 0;
 
+    [Header("Roaming")]
+    [Tooltip("コート内で周期的に遠めのランダム目標へ移動する")]
+    public bool enableRoam = true;
+    [Tooltip("ローミングの目標切り替え間隔（秒）の範囲")]
+    public Vector2 roamIntervalRange = new Vector2(2.0f, 4.0f);
+    [Tooltip("ローミングのシーク強度（合力への寄与）")]
+    public float roamSeekStrength = 1.2f;
+
+    private Vector3 _roamTarget;
+    private float _roamTimer = 0f;
+
+    // ブースト機能は削除済み
+
     [Header("Height Variation")]
     [Tooltip("高さ変化を有効にする")]
     public bool enableHeightVariation = true;
@@ -174,6 +187,12 @@ public class BasketballAgentController : MonoBehaviour
 
         // 初期ワンダーターゲットを前方に配置
         _wanderTarget = transform.position + transform.forward * wanderDistance;
+
+        // ローミング初期化
+        ResetRoamTimer();
+        PickNewRoamTarget();
+
+        // ブースト機能は削除
 
         // チーム判定
         DetermineTeam();
@@ -339,6 +358,9 @@ public class BasketballAgentController : MonoBehaviour
         // 人間らしい行動パターン
         UpdateHumanBehavior();
 
+        // ローミング目標の更新
+        UpdateRoaming();
+
         // 境界チェックを最初に行う
         Vector3 boundaryForce = ComputeBoundaryPush();
         bool isOutOfBounds = boundaryForce.magnitude > boundaryPushStrength * 0.5f;
@@ -349,6 +371,8 @@ public class BasketballAgentController : MonoBehaviour
         {
             desired += ComputeWander();
         }
+        // ローミングのシーク力（常時弱めに加える）
+        desired += ComputeRoamSeek();
         desired += ComputeSeparation();
         desired += ComputeAvoidance();
 
@@ -513,6 +537,52 @@ public class BasketballAgentController : MonoBehaviour
         position.y = transform.position.y; // Y座標は現在位置を維持
 
         return position;
+    }
+
+    private void ResetRoamTimer()
+    {
+        _roamTimer = Random.Range(roamIntervalRange.x, roamIntervalRange.y);
+    }
+
+    private void PickNewRoamTarget()
+    {
+        if (CourtManager.Instance != null && CourtManager.Instance.TryGetFloorBounds(out var bounds))
+        {
+            float minX = bounds.min.x + boundaryPadding;
+            float maxX = bounds.max.x - boundaryPadding;
+            float minZ = bounds.min.z + boundaryPadding + zBoundaryExtraPadding;
+            float maxZ = bounds.max.z - boundaryPadding;
+            float x = Random.Range(minX, maxX);
+            float z = Random.Range(minZ, maxZ);
+            _roamTarget = new Vector3(x, transform.position.y, z);
+        }
+        else
+        {
+            // 境界が取れない場合は前方遠め
+            _roamTarget = transform.position + transform.forward * 6f;
+            _roamTarget.y = transform.position.y;
+        }
+    }
+
+    private void UpdateRoaming()
+    {
+        if (!enableRoam) return;
+        _roamTimer -= Time.deltaTime;
+        float dist = Vector3.Distance(transform.position, _roamTarget);
+        if (_roamTimer <= 0f || dist < 0.6f)
+        {
+            ResetRoamTimer();
+            PickNewRoamTarget();
+        }
+    }
+
+    private Vector3 ComputeRoamSeek()
+    {
+        if (!enableRoam) return Vector3.zero;
+        Vector3 toTarget = _roamTarget - transform.position;
+        toTarget.y = 0f;
+        if (toTarget.sqrMagnitude < 0.0001f) return Vector3.zero;
+        return toTarget.normalized * roamSeekStrength;
     }
 
     private Vector3 ComputeSeparation()
@@ -1122,7 +1192,7 @@ public class BasketballAgentController : MonoBehaviour
     {
         _isPaused = false;
         _cc.enabled = true;
-        Debug.Log($"{gameObject.name} を再開しました。");
+        // ブースト機能は削除
 
         // 個別再開時にもパスを開始（パス回数をカウントしない）
         var pass = FindObjectOfType<BallPassController>();
@@ -1131,6 +1201,8 @@ public class BasketballAgentController : MonoBehaviour
             pass.ResumePassing();
         }
     }
+
+    // ブースト関連コードは削除
 
     // 一時停止状態の取得
     public bool IsPaused()

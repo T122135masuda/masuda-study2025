@@ -197,8 +197,8 @@ public class AutoSetup : MonoBehaviour
             controller.passTeam = team;
             controller.enablePreciseLanding = true;
             controller.enablePrediction = false;
-            controller.passPauseDuration = 2.5f;
-            controller.holdTimeAtReceiver = 0.4f;
+            controller.passPauseDuration = 1.0f;
+            controller.holdTimeAtReceiver = 0.2f;
         }
 
         // 既存の Ball は既定チーム
