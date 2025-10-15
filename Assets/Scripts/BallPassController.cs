@@ -126,25 +126,8 @@ public class BallPassController : MonoBehaviour
 		_totalPassCount = 0;
 		_currentSessionPassCount = 0;
 
-		// Ball を名前で取得（大文字小文字や部分一致にもある程度対応）
-		var ballGo = GameObject.Find("Ball");
-		if (ballGo == null)
-		{
-			foreach (var t in FindObjectsOfType<Transform>())
-			{
-				if (t.name.Equals("ball", System.StringComparison.OrdinalIgnoreCase))
-				{
-					ballGo = t.gameObject;
-					break;
-				}
-			}
-		}
-		if (ballGo == null)
-		{
-			Debug.LogWarning("BallPassController: 'Ball' オブジェクトが見つかりません。");
-			enabled = false;
-			return;
-		}
+		// 自身にアタッチされたオブジェクトをボールとして扱う（Ball/ Ball2 など複数対応）
+		var ballGo = gameObject;
 		_ball = ballGo.transform;
 		_rb = ballGo.GetComponent<Rigidbody>();
 		if (_rb != null)

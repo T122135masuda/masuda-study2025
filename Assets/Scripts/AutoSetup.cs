@@ -182,30 +182,31 @@ public class AutoSetup : MonoBehaviour
 
     private void SetupBallPass()
     {
-        // Ball を探してコントローラをアタッチ
-        GameObject ball = GameObject.Find("Ball");
-        if (ball == null)
+        // 共通設定関数
+        void SetupBallObject(string objectName, BallPassController.PassTeam team)
         {
-            Debug.LogWarning("AutoSetup: Ball が見つかりませんでした。");
-            return;
+            GameObject ballObj = GameObject.Find(objectName);
+            if (ballObj == null) return;
+
+            BallPassController controller = ballObj.GetComponent<BallPassController>();
+            if (controller == null)
+            {
+                controller = ballObj.AddComponent<BallPassController>();
+            }
+
+            controller.passTeam = team;
+            controller.enablePreciseLanding = true;
+            controller.enablePrediction = false;
+            controller.passPauseDuration = 2.5f;
+            controller.holdTimeAtReceiver = 0.4f;
         }
 
-        BallPassController ctrl = ball.GetComponent<BallPassController>();
-        if (ctrl == null)
-        {
-            ctrl = ball.AddComponent<BallPassController>();
-        }
-        ctrl.passTeam = defaultPassTeam;
+        // 既存の Ball は既定チーム
+        SetupBallObject("Ball", defaultPassTeam);
 
-        // Ballは待機中 常に番号1のカプセルへスナップ（コントローラ側の固定仕様）
-
-        // Ballの精度設定を最適化
-        ctrl.enablePreciseLanding = true;
-        ctrl.enablePrediction = false;
-
-        // Ballのパスタイミングを調整
-        ctrl.passPauseDuration = 2.5f;
-        ctrl.holdTimeAtReceiver = 0.4f; // 受け手での保持時間 0.4秒
+        // 追加された Ball2 / Ball２ は黒チーム
+        SetupBallObject("Ball2", BallPassController.PassTeam.Black);
+        SetupBallObject("Ball２", BallPassController.PassTeam.Black);
     }
 
 
