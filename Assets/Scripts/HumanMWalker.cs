@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 public class HumanMWalker : MonoBehaviour
 {
@@ -24,15 +25,6 @@ public class HumanMWalker : MonoBehaviour
     [Tooltip("エンターキー押下後の待機時間（秒）")]
     public float startDelayTime = 3.0f;
 
-    [Tooltip("ジャンプ回数")]
-    public int jumpCount = 3;
-
-    [Tooltip("1回のジャンプ時間（秒）")]
-    public float singleJumpTime = 1.0f;
-
-    [Tooltip("特定待機位置")]
-    public Vector3 specialWaitPosition = new Vector3(0.48f, 0.2035494f, 0.76f);
-
     [Tooltip("自動開始")]
     public bool autoStart = false;
 
@@ -43,14 +35,12 @@ public class HumanMWalker : MonoBehaviour
     [Tooltip("歩行アニメーションコントローラー")]
     public RuntimeAnimatorController walkAnimatorController;
 
-    [Tooltip("ジャンプアニメーションコントローラー")]
-    public RuntimeAnimatorController jumpAnimatorController;
+    // ジャンプアニメーションは廃止
 
     [Tooltip("歩行アニメーションクリップ")]
     public AnimationClip walkAnimationClip;
 
-    [Tooltip("ジャンプアニメーションクリップ")]
-    public AnimationClip jumpAnimationClip;
+    // ジャンプアニメーションは廃止
 
     [Tooltip("アニメーションのブレンド時間")]
     public float animationBlendTime = 0.2f;
@@ -65,15 +55,7 @@ public class HumanMWalker : MonoBehaviour
     [Tooltip("衝突回避の力の強さ")]
     public float avoidanceForce = 2.0f;
 
-    [Header("Jump Animation Settings")]
-    [Tooltip("待機中のジャンプアニメーションを有効にする")]
-    public bool enableWaitJumpAnimation = true;
-
-    [Tooltip("ジャンプアニメーションの再生速度")]
-    public float jumpAnimationSpeed = 1.0f;
-
-    [Tooltip("ジャンプアニメーションが見つからない場合の代替手段")]
-    public bool useWalkAnimationAsJump = true;
+    // ジャンプ関連設定は廃止
 
     [Header("Debug")]
     [Tooltip("デバッグ情報を表示")]
@@ -85,40 +67,40 @@ public class HumanMWalker : MonoBehaviour
     private float _waitTimer = 0f;
     private bool _isDelayedStart = false;
     private float _delayTimer = 0f;
-    private int _currentJumpCount = 0;
-    private float _jumpTimer = 0f;
+    // ジャンプ関連の内部状態は廃止
     private Animator _animator;
     private CharacterController _characterController;
 
-    // 待機中のジャンプアニメーション関連（無効化）
-    // private bool _isPlayingJumpAnimation = false; // 未使用のため削除
-    // private Animation _animationComponent; // Legacyアニメーションを無効化
+    // Z閾値での回転制御
+    private bool _hasPerformedZRotation = false;
+    private bool _isRotatingSequence = false;
+
+    // しきい値設定
+    private const float ZRotationThreshold = 0.81f;
+    private const float ZThresholdEpsilon = 0.005f;
+    private const float RotateDurationSeconds = 1.0f;
+    private const float RotateYFirst = -92.218f;
+    private const float RotateYSecond = 0f;
+
+    // Legacy アニメーションは未使用
 
     // 移動段階の管理
-    private enum MovementPhase
-    {
-        WalkingToJump,      // ジャンプ位置へ歩行中
-        Jumping,            // ジャンプ中
-        WalkingToGoal       // ゴール位置へ歩行中
-    }
-    private MovementPhase _currentPhase = MovementPhase.WalkingToJump;
+    // 段階管理は単純化（ゴールへ歩行のみ）
 
     // アニメーショントリガー
     private static readonly int WalkTriggerHash = Animator.StringToHash("Walk");
     private static readonly int IdleTriggerHash = Animator.StringToHash("Idle");
-    private static readonly int JumpTriggerHash = Animator.StringToHash("Jump");
 
     private void Start()
     {
         // コンポーネントの取得
         _animator = GetComponent<Animator>();
         _characterController = GetComponent<CharacterController>();
-        // _animationComponent = GetComponent<Animation>(); // Legacyアニメーションを無効化
+        // Legacy Animation は未使用
 
         // 初期位置を確実に設定
         transform.position = startPosition;
-        _currentTarget = specialWaitPosition; // 最初はジャンプ位置を目標にする
-        _currentPhase = MovementPhase.WalkingToJump;
+        _currentTarget = targetPosition; // 直接ゴールへ
 
         if (showDebugInfo)
         {
@@ -201,71 +183,7 @@ public class HumanMWalker : MonoBehaviour
             }
         }
 
-        if (jumpAnimationClip == null)
-        {
-            if (showDebugInfo)
-            {
-                Debug.Log("HumanMWalker: ジャンプアニメーションクリップを検索開始...");
-            }
-
-            // Resourcesフォルダから検索
-            string[] jumpClipNames = {
-                "HumanM@Jump01",
-                "HumanF@Jump01",
-                "HumanM@Jump01_Up",
-                "HumanF@Jump01_Up"
-            };
-
-            if (showDebugInfo)
-            {
-                Debug.Log($"HumanMWalker: Resourcesフォルダから検索中... {string.Join(", ", jumpClipNames)}");
-            }
-
-            foreach (string clipName in jumpClipNames)
-            {
-                jumpAnimationClip = Resources.Load<AnimationClip>(clipName);
-                if (jumpAnimationClip != null)
-                {
-                    if (showDebugInfo)
-                    {
-                        Debug.Log($"HumanMWalker: ジャンプアニメーションクリップを発見: {clipName}");
-                    }
-                    break;
-                }
-            }
-
-            // Resourcesフォルダから見つからない場合は、シーン内のアセットから検索
-            if (jumpAnimationClip == null)
-            {
-                if (showDebugInfo)
-                {
-                    Debug.Log("HumanMWalker: シーン内のアセットから検索中...");
-                }
-                jumpAnimationClip = FindJumpAnimationClipInScene();
-            }
-
-            // それでも見つからない場合は、AnimatorController内のアニメーションを検索
-            if (jumpAnimationClip == null && _animator != null && _animator.runtimeAnimatorController != null)
-            {
-                if (showDebugInfo)
-                {
-                    Debug.Log($"HumanMWalker: AnimatorController内から検索中: {_animator.runtimeAnimatorController.name}");
-                }
-                jumpAnimationClip = FindJumpAnimationInController(_animator.runtimeAnimatorController);
-            }
-
-            if (jumpAnimationClip == null && showDebugInfo)
-            {
-                Debug.Log("HumanMWalker: ジャンプアニメーションクリップが見つかりませんでした。Inspectorで手動設定してください。");
-            }
-        }
-        else
-        {
-            if (showDebugInfo)
-            {
-                Debug.Log($"HumanMWalker: ジャンプアニメーションクリップが既に設定されています: {jumpAnimationClip.name}");
-            }
-        }
+        // ジャンプアニメーションの自動検索は廃止
 
         // アニメーションコントローラーが設定されていない場合は自動検索
         if (walkAnimatorController == null)
@@ -342,8 +260,7 @@ public class HumanMWalker : MonoBehaviour
                 Debug.Log("=== エンターキーが押されました ===");
                 Debug.Log("移動手順:");
                 Debug.Log($"1. スタート位置: {startPosition}");
-                Debug.Log($"2. ジャンプ位置: {specialWaitPosition} (3秒間ジャンプ)");
-                Debug.Log($"3. ゴール位置: {targetPosition}");
+                Debug.Log($"2. ゴール位置: {targetPosition}");
             }
 
             // エンターキーを押した場合は、3秒待機してから開始
@@ -377,8 +294,7 @@ public class HumanMWalker : MonoBehaviour
             {
                 // 待機完了、歩行開始
                 _isDelayedStart = false;
-                _currentPhase = MovementPhase.WalkingToJump;
-                _currentTarget = specialWaitPosition;
+                _currentTarget = targetPosition;
                 _isMoving = true;
                 _isWaiting = false;
 
@@ -388,7 +304,6 @@ public class HumanMWalker : MonoBehaviour
                 if (showDebugInfo)
                 {
                     Debug.Log("=== 待機完了、歩行開始 ===");
-                    Debug.Log($"HumanMWalker: 現在の段階: {_currentPhase}");
                     Debug.Log($"HumanMWalker: 次の目標: {_currentTarget}");
                 }
             }
@@ -413,23 +328,7 @@ public class HumanMWalker : MonoBehaviour
         else if (_isWaiting)
         {
             HandleWaiting();
-            // ジャンプ中はジャンプアニメーションを再生
-            if (enableWaitJumpAnimation)
-            {
-                if (showDebugInfo && Time.frameCount % 60 == 0)
-                {
-                    Debug.Log($"HumanMWalker: ジャンプ中 - ジャンプアニメーション再生中");
-                }
-                UpdateAnimation(false, 0f, true); // ジャンプアニメーションを実行
-            }
-            else
-            {
-                if (showDebugInfo && Time.frameCount % 60 == 0)
-                {
-                    Debug.Log("HumanMWalker: ジャンプ中 - ジャンプアニメーションが無効です");
-                }
-                UpdateAnimation(false, 0f); // 通常の待機アニメーション
-            }
+            UpdateAnimation(false, 0f);
         }
         else
         {
@@ -437,13 +336,24 @@ public class HumanMWalker : MonoBehaviour
             UpdateAnimation(false, 0f);
             if (showDebugInfo && Time.frameCount % 120 == 0)
             {
-                Debug.Log($"HumanMWalker: 待機状態 - 段階: {_currentPhase}, 移動中: {_isMoving}, 待機中: {_isWaiting}");
+                Debug.Log($"HumanMWalker: 待機状態 - 移動中: {_isMoving}, 待機中: {_isWaiting}");
             }
         }
     }
 
     private void MoveToTarget()
     {
+        // Z=0.81 到達時の回転シーケンス判定
+        if (!_hasPerformedZRotation && !_isRotatingSequence)
+        {
+            float z = transform.position.z;
+            if (z >= ZRotationThreshold - ZThresholdEpsilon)
+            {
+                StartCoroutine(RunZRotationSequence());
+                return; // 回転中は移動しない
+            }
+        }
+
         // 目標までの距離を計算
         float distanceToTarget = Vector3.Distance(transform.position, _currentTarget);
 
@@ -502,109 +412,79 @@ public class HumanMWalker : MonoBehaviour
         // デバッグ情報（一定間隔で）
         if (showDebugInfo && Time.frameCount % 120 == 0) // 2秒に1回
         {
-            Debug.Log($"HumanMWalker: 移動中 - 段階: {_currentPhase}, 現在位置: {transform.position}, 目標: {_currentTarget}, 距離: {distanceToTarget:F2}");
+            Debug.Log($"HumanMWalker: 移動中 - 現在位置: {transform.position}, 目標: {_currentTarget}, 距離: {distanceToTarget:F2}");
             Debug.Log($"HumanMWalker: 移動方向: {direction}, 移動量: {movement}");
         }
     }
 
 
+    private IEnumerator RunZRotationSequence()
+    {
+        _isRotatingSequence = true;
+        _isMoving = false;
+
+        // 1秒で Y = -92.218 へ回転
+        Quaternion startRot = transform.rotation;
+        Quaternion midRot = Quaternion.Euler(0f, RotateYFirst, 0f);
+        float t = 0f;
+        while (t < 1f)
+        {
+            t += Time.deltaTime / RotateDurationSeconds;
+            float clamped = Mathf.Clamp01(t);
+            transform.rotation = Quaternion.Slerp(startRot, midRot, clamped);
+            yield return null;
+        }
+
+        // 1秒で Y = 0 に戻す
+        Quaternion endRot = Quaternion.Euler(0f, RotateYSecond, 0f);
+        t = 0f;
+        while (t < 1f)
+        {
+            t += Time.deltaTime / RotateDurationSeconds;
+            float clamped = Mathf.Clamp01(t);
+            transform.rotation = Quaternion.Slerp(midRot, endRot, clamped);
+            yield return null;
+        }
+
+        _hasPerformedZRotation = true;
+        _isRotatingSequence = false;
+        _isMoving = true; // 歩行を再開
+
+        if (showDebugInfo)
+        {
+            Debug.Log("HumanMWalker: Z=0.81回転シーケンス完了。歩行を再開します。");
+        }
+    }
+
     private void ArrivedAtTarget()
     {
         _isMoving = false;
 
-        switch (_currentPhase)
+        // ゴール位置に到着
+        if (showDebugInfo)
         {
-            case MovementPhase.WalkingToJump:
-                // ジャンプ位置に到着
-                _currentPhase = MovementPhase.Jumping;
-                _isWaiting = true;
-                _currentJumpCount = 1; // 1回目から開始
-                _jumpTimer = singleJumpTime;
-                if (showDebugInfo)
-                {
-                    Debug.Log("=== ジャンプ位置に到着 ===");
-                    Debug.Log($"HumanMWalker: ジャンプ位置に到着しました: {specialWaitPosition}");
-                    Debug.Log($"HumanMWalker: {jumpCount}回のジャンプを開始します（1回あたり{singleJumpTime}秒）");
-                    Debug.Log($"HumanMWalker: 1回目のジャンプ開始");
-                    Debug.Log($"HumanMWalker: 現在の段階: {_currentPhase}");
-                }
-                break;
-
-            case MovementPhase.WalkingToGoal:
-                // ゴール位置に到着
-                if (showDebugInfo)
-                {
-                    Debug.Log("=== ゴール位置に到着 ===");
-                    Debug.Log($"HumanMWalker: ゴール位置に到着しました: {targetPosition}");
-                    Debug.Log("HumanMWalker: 移動完了。");
-                }
-                break;
+            Debug.Log("=== ゴール位置に到着 ===");
+            Debug.Log($"HumanMWalker: ゴール位置に到着しました: {targetPosition}");
+            Debug.Log("HumanMWalker: 移動完了。");
         }
     }
 
     private void HandleWaiting()
     {
-        if (_currentPhase == MovementPhase.Jumping)
+        // 通常の待機タイマーのみ
+        _waitTimer -= Time.deltaTime;
+        if (_waitTimer <= 0f)
         {
-            // ジャンプ中の処理
-            _jumpTimer -= Time.deltaTime;
-            if (_jumpTimer <= 0f)
+            _isWaiting = false;
+            if (showDebugInfo)
             {
-                if (_currentJumpCount < jumpCount)
-                {
-                    // 次のジャンプへ
-                    _currentJumpCount++;
-                    _jumpTimer = singleJumpTime;
-                    if (showDebugInfo)
-                    {
-                        Debug.Log($"HumanMWalker: {_currentJumpCount - 1}回目のジャンプ完了。{_currentJumpCount}回目を開始します。");
-                    }
-                }
-                else
-                {
-                    // 全ジャンプ完了
-                    _isWaiting = false;
-                    _currentPhase = MovementPhase.WalkingToGoal;
-                    _currentTarget = targetPosition;
-                    _isMoving = true;
-                    if (showDebugInfo)
-                    {
-                        Debug.Log("=== 全ジャンプ完了、ゴールへ移動開始 ===");
-                        Debug.Log($"HumanMWalker: {jumpCount}回のジャンプ完了。ゴール位置へ移動開始。");
-                        Debug.Log($"HumanMWalker: ゴール位置: {targetPosition}");
-                        Debug.Log($"HumanMWalker: 段階: {_currentPhase}, 目標: {_currentTarget}, 移動中: {_isMoving}");
-                    }
-                }
-            }
-            else
-            {
-                // ジャンプ中のデバッグ情報
-                if (showDebugInfo && Time.frameCount % 60 == 0) // 1秒に1回
-                {
-                    Debug.Log($"HumanMWalker: ジャンプ中 - {_currentJumpCount}回目, 残り時間: {_jumpTimer:F1}秒");
-                }
-            }
-        }
-        else
-        {
-            // その他の待機処理（通常の待機タイマー）
-            _waitTimer -= Time.deltaTime;
-            if (_waitTimer <= 0f)
-            {
-                _isWaiting = false;
-                if (showDebugInfo)
-                {
-                    Debug.Log("HumanMWalker: 待機完了");
-                }
+                Debug.Log("HumanMWalker: 待機完了");
             }
         }
     }
 
     public void StartWalking()
     {
-        // 常に最初から開始
-        _currentPhase = MovementPhase.WalkingToJump;
-
         // 強制的に初期位置に設定
         transform.position = startPosition;
         if (_characterController != null)
@@ -614,8 +494,8 @@ public class HumanMWalker : MonoBehaviour
             _characterController.enabled = true;
         }
 
-        // ジャンプ位置を目標に設定
-        _currentTarget = specialWaitPosition;
+        // ゴールを目標に設定
+        _currentTarget = targetPosition;
 
         _isMoving = true;
         _isWaiting = false;
@@ -628,7 +508,7 @@ public class HumanMWalker : MonoBehaviour
             Debug.Log("HumanMWalker: 歩行開始。最初からやり直します。");
             Debug.Log($"HumanMWalker: 設定位置: {startPosition}");
             Debug.Log($"HumanMWalker: 実際の位置: {transform.position}");
-            Debug.Log($"HumanMWalker: 歩行開始。段階: {_currentPhase}, 目標: {_currentTarget}");
+            Debug.Log($"HumanMWalker: 歩行開始。目標: {_currentTarget}");
         }
     }
 
@@ -667,11 +547,11 @@ public class HumanMWalker : MonoBehaviour
         return _currentTarget;
     }
 
-    private void UpdateAnimation(bool isWalking, float speed, bool isJumping = false)
+    private void UpdateAnimation(bool isWalking, float speed)
     {
         if (showDebugInfo && Time.frameCount % 60 == 0)
         {
-            Debug.Log($"HumanMWalker: UpdateAnimation呼び出し - 歩行:{isWalking}, 速度:{speed:F2}, ジャンプ:{isJumping}");
+            Debug.Log($"HumanMWalker: UpdateAnimation呼び出し - 歩行:{isWalking}, 速度:{speed:F2}");
         }
 
         if (_animator == null)
@@ -703,41 +583,7 @@ public class HumanMWalker : MonoBehaviour
         }
 
         // アニメーション状態に応じてアニメーションを再生
-        if (isJumping && enableWaitJumpAnimation)
-        {
-            // ジャンプアニメーション
-            if (jumpAnimationClip != null)
-            {
-                _animator.Play(jumpAnimationClip.name);
-                _animator.speed = jumpAnimationSpeed;
-
-                if (showDebugInfo)
-                {
-                    Debug.Log($"HumanMWalker: ジャンプアニメーション再生: {jumpAnimationClip.name}");
-                }
-            }
-            else
-            {
-                // ジャンプアニメーションが見つからない場合は歩行アニメーションを代用
-                if (walkAnimationClip != null)
-                {
-                    _animator.Play(walkAnimationClip.name);
-                    _animator.speed = jumpAnimationSpeed;
-                    if (showDebugInfo)
-                    {
-                        Debug.Log($"HumanMWalker: ジャンプアニメーションが見つからないため、歩行アニメーションを代用: {walkAnimationClip.name}");
-                    }
-                }
-                else
-                {
-                    if (showDebugInfo)
-                    {
-                        Debug.Log("HumanMWalker: アニメーションクリップが設定されていません");
-                    }
-                }
-            }
-        }
-        else if (isWalking && speed > 0f)
+        if (isWalking && speed > 0f)
         {
             // 歩行アニメーション
             if (walkAnimationClip != null)
@@ -772,10 +618,9 @@ public class HumanMWalker : MonoBehaviour
         // デバッグ情報を表示（一定間隔で）
         if (showDebugInfo && Time.frameCount % 60 == 0) // 1秒に1回
         {
-            Debug.Log($"HumanMWalker: アニメーション状態 - 歩行中:{isWalking}, ジャンプ中:{isJumping}, 速度:{speed:F2}, Animator速度:{_animator.speed:F2}");
+            Debug.Log($"HumanMWalker: アニメーション状態 - 歩行中:{isWalking}, 速度:{speed:F2}, Animator速度:{_animator.speed:F2}");
             Debug.Log($"HumanMWalker: Animator Controller: {(_animator.runtimeAnimatorController != null ? _animator.runtimeAnimatorController.name : "None")}");
             Debug.Log($"HumanMWalker: 歩行アニメーションクリップ: {(walkAnimationClip != null ? walkAnimationClip.name : "None")}");
-            Debug.Log($"HumanMWalker: ジャンプアニメーションクリップ: {(jumpAnimationClip != null ? jumpAnimationClip.name : "None")}");
         }
     }
 
@@ -863,91 +708,7 @@ public class HumanMWalker : MonoBehaviour
         return null;
     }
 
-    private AnimationClip FindJumpAnimationClipInScene()
-    {
-        // シーン内のすべてのアニメーションクリップを検索
-        AnimationClip[] allClips = Resources.FindObjectsOfTypeAll<AnimationClip>();
-
-        if (showDebugInfo)
-        {
-            Debug.Log($"HumanMWalker: シーン内で{allClips.Length}個のアニメーションクリップを検索中...");
-        }
-
-        string[] jumpKeywords = { "Jump", "jump", "JUMP" };
-
-        foreach (AnimationClip clip in allClips)
-        {
-            if (clip == null) continue;
-
-            string clipName = clip.name;
-
-            if (showDebugInfo && Time.frameCount % 60 == 0)
-            {
-                Debug.Log($"HumanMWalker: 検索中: {clipName}");
-            }
-
-            // ジャンプ関連のキーワードを含むクリップを検索
-            foreach (string keyword in jumpKeywords)
-            {
-                if (clipName.Contains(keyword))
-                {
-                    if (showDebugInfo)
-                    {
-                        Debug.Log($"HumanMWalker: ジャンプアニメーションクリップを発見: {clipName}");
-                    }
-                    return clip;
-                }
-            }
-        }
-
-        if (showDebugInfo)
-        {
-            Debug.Log("HumanMWalker: シーン内でジャンプアニメーションクリップが見つかりませんでした");
-            Debug.Log("HumanMWalker: 利用可能なアニメーションクリップ:");
-            foreach (AnimationClip clip in allClips)
-            {
-                if (clip != null)
-                {
-                    Debug.Log($"  - {clip.name}");
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private AnimationClip FindJumpAnimationInController(RuntimeAnimatorController controller)
-    {
-        if (controller == null) return null;
-
-        // AnimatorController内のすべてのアニメーションクリップを検索
-        foreach (var layer in controller.animationClips)
-        {
-            if (layer == null) continue;
-
-            string clipName = layer.name;
-            string[] jumpKeywords = { "Jump", "jump", "JUMP" };
-
-            foreach (string keyword in jumpKeywords)
-            {
-                if (clipName.Contains(keyword))
-                {
-                    if (showDebugInfo)
-                    {
-                        Debug.Log($"HumanMWalker: AnimatorController内でジャンプアニメーションクリップを発見: {clipName}");
-                    }
-                    return layer;
-                }
-            }
-        }
-
-        if (showDebugInfo)
-        {
-            Debug.Log("HumanMWalker: AnimatorController内でジャンプアニメーションクリップが見つかりませんでした");
-        }
-
-        return null;
-    }
+    // ジャンプアニメーション探索は削除
 
     private Vector3 ComputeAvoidanceDirection()
     {
@@ -993,30 +754,18 @@ public class HumanMWalker : MonoBehaviour
         GUILayout.Label($"移動中: {_isMoving}");
         GUILayout.Label($"待機中: {_isWaiting}");
         GUILayout.Label($"開始待機中: {_isDelayedStart}");
-        GUILayout.Label($"待機中ジャンプアニメーション: {enableWaitJumpAnimation}");
-        GUILayout.Label($"現在の段階: {_currentPhase}");
+        GUILayout.Label($"現在の目標: {_currentTarget}");
         GUILayout.Label($"現在位置: {transform.position}");
         GUILayout.Label($"設定開始位置: {startPosition}");
-        GUILayout.Label($"現在の目標: {_currentTarget}");
 
         // 位置の差を表示
         Vector3 positionDiff = transform.position - startPosition;
         GUILayout.Label($"位置差: {positionDiff}");
         GUILayout.Label($"歩行速度: {walkSpeed:F2} m/s");
-        GUILayout.Label($"特定待機位置: {specialWaitPosition}");
-        GUILayout.Label($"ジャンプ回数: {jumpCount}回");
-        GUILayout.Label($"1回のジャンプ時間: {singleJumpTime}秒");
+        // 特定待機位置は廃止
         if (_isWaiting)
         {
-            if (_currentPhase == MovementPhase.Jumping)
-            {
-                GUILayout.Label($"ジャンプ中: {_currentJumpCount}/{jumpCount}回目");
-                GUILayout.Label($"ジャンプ残り時間: {_jumpTimer:F1}秒");
-            }
-            else
-            {
-                GUILayout.Label($"待機残り時間: {_waitTimer:F1}秒");
-            }
+            GUILayout.Label($"待機残り時間: {_waitTimer:F1}秒");
         }
         if (_isDelayedStart)
         {
@@ -1041,9 +790,7 @@ public class HumanMWalker : MonoBehaviour
         GUILayout.Label("エンターキー: 3秒待機後に歩行開始");
         GUILayout.Label("移動手順:");
         GUILayout.Label("1. エンターキー押下 → 3秒待機");
-        GUILayout.Label("2. スタート位置 → ジャンプ位置へ歩行");
-        GUILayout.Label($"3. ジャンプ位置で{jumpCount}回ジャンプ");
-        GUILayout.Label("4. ジャンプ位置 → ゴール位置へ歩行");
+        GUILayout.Label("2. スタート位置 → ゴール位置へ歩行");
 
         if (_animator != null)
         {
@@ -1066,12 +813,6 @@ public class HumanMWalker : MonoBehaviour
         }
 
         GUILayout.Space(5);
-        GUILayout.Label("ジャンプアニメーション:", GUI.skin.box);
-        GUILayout.Label($"有効: {enableWaitJumpAnimation}");
-        GUILayout.Label($"クリップ: {(jumpAnimationClip != null ? jumpAnimationClip.name : "None")}");
-        GUILayout.Label($"速度: {jumpAnimationSpeed:F2}");
-        GUILayout.Label($"歩行アニメーション代用: {useWalkAnimationAsJump}");
-
         GUILayout.Label("Animation: 無効化されています（Legacyアニメーションエラー回避のため）", GUI.skin.box);
 
         GUILayout.EndArea();

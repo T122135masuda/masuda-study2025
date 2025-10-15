@@ -41,6 +41,9 @@ public class AutoSetup : MonoBehaviour
 
     private void Start()
     {
+        // すべてのコンソール出力を無効化
+        Debug.unityLogger.logEnabled = false;
+
         EnsureCourtManager();
         AttachAgents();
         if (setupFirstPersonCamera)
@@ -236,13 +239,12 @@ public class AutoSetup : MonoBehaviour
 
     private void SetupHumanMAnimation(GameObject humanModel)
     {
-        // Animationコンポーネントは追加しない（Legacyアニメーションエラー回避のため）
-        // Animation animationComponent = humanModel.GetComponent<Animation>();
-        // if (animationComponent == null)
-        // {
-        //     animationComponent = humanModel.AddComponent<Animation>();
-        //     Debug.Log("AutoSetup: Animationコンポーネントを追加しました（ジャンプアニメーション用）");
-        // }
+        // Animation（Legacy）コンポーネントは使用しないため削除
+        var legacyAnimation = humanModel.GetComponent<Animation>();
+        if (legacyAnimation != null)
+        {
+            Object.Destroy(legacyAnimation);
+        }
 
         // Animatorコンポーネントを追加
         Animator animator = humanModel.GetComponent<Animator>();
@@ -251,12 +253,11 @@ public class AutoSetup : MonoBehaviour
             animator = humanModel.AddComponent<Animator>();
         }
 
-        // NavMeshAgentコンポーネントを追加
-        UnityEngine.AI.NavMeshAgent navMeshAgent = humanModel.GetComponent<UnityEngine.AI.NavMeshAgent>();
-        if (navMeshAgent == null)
+        // NavMeshAgent は未使用かつ NavMesh 非依存にするため削除
+        var navMeshAgent = humanModel.GetComponent<UnityEngine.AI.NavMeshAgent>();
+        if (navMeshAgent != null)
         {
-            navMeshAgent = humanModel.AddComponent<UnityEngine.AI.NavMeshAgent>();
-            Debug.Log("AutoSetup: NavMeshAgentコンポーネントを追加しました");
+            Object.Destroy(navMeshAgent);
         }
 
         // HumanMWalkerコンポーネントを取得
