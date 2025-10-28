@@ -8,22 +8,25 @@ public class HumanMWalker : MonoBehaviour
     public float walkSpeed = 2.0f;
 
     [Tooltip("開始位置")]
-    public Vector3 startPosition = new Vector3(0.48f, 0.318f, -11.301f);
+    public Vector3 startPosition = new Vector3(9.17f, 0f, 3.71f); // 開始位置
 
-    [Tooltip("目標位置")]
-    public Vector3 targetPosition = new Vector3(0.48f, 0.2035494f, 13.498f);
+    [Tooltip("経由点")]
+    public Vector3 waypoint = new Vector3(0.05f, 0f, 3.71f); // 経由点
+
+    [Tooltip("最終目標位置")]
+    public Vector3 targetPosition = new Vector3(-10.77f, 0f, 3.71f); // 最終目標
 
     [Tooltip("到着判定の距離（m）")]
-    public float arrivalDistance = 0.1f;
+    public float arrivalDistance = 0.5f;
 
     [Tooltip("到着後の待機時間（秒）")]
-    public float waitTime = 1.0f;
+    public float waitTime = 2.0f;
 
     [Tooltip("特定位置での待機時間（秒）")]
     public float specialWaitTime = 3.0f;
 
     [Tooltip("エンターキー押下後の待機時間（秒）")]
-    public float startDelayTime = 3.0f;
+    public float startDelayTime = 5.0f;
 
     [Tooltip("自動開始")]
     public bool autoStart = false;
@@ -67,6 +70,7 @@ public class HumanMWalker : MonoBehaviour
     private float _waitTimer = 0f;
     private bool _isDelayedStart = false;
     private float _delayTimer = 0f;
+    private bool _hasReachedWaypoint = false;
     // ジャンプ関連の内部状態は廃止
     private Animator _animator;
     private CharacterController _characterController;
@@ -75,8 +79,8 @@ public class HumanMWalker : MonoBehaviour
     private bool _hasPerformedZRotation = false;
     private bool _isRotatingSequence = false;
 
-    // しきい値設定
-    private const float ZRotationThreshold = 0.81f;
+    // しきい値設定（新しい座標に合わせて調整）
+    private const float ZRotationThreshold = 3.71f; // Z座標が3.71の時
     private const float ZThresholdEpsilon = 0.005f;
     private const float RotateDurationSeconds = 1.0f;
     private const float RotateYFirst = -92.218f;
@@ -100,12 +104,15 @@ public class HumanMWalker : MonoBehaviour
 
         // 初期位置を確実に設定
         transform.position = startPosition;
-        _currentTarget = targetPosition; // 直接ゴールへ
+        _currentTarget = waypoint; // 最初は経由点へ
+        _isMoving = false; // 初期状態では移動しない（エンターキー待ち）
 
         if (showDebugInfo)
         {
             Debug.Log($"HumanMWalker: 初期位置を設定しました - {startPosition}");
             Debug.Log($"HumanMWalker: 実際の位置 - {transform.position}");
+            Debug.Log($"HumanMWalker: 初期目標 - {_currentTarget}");
+            Debug.Log($"HumanMWalker: 移動状態 - {_isMoving}");
         }
 
         // アニメーション設定
@@ -260,14 +267,16 @@ public class HumanMWalker : MonoBehaviour
                 Debug.Log("=== エンターキーが押されました ===");
                 Debug.Log("移動手順:");
                 Debug.Log($"1. スタート位置: {startPosition}");
-                Debug.Log($"2. ゴール位置: {targetPosition}");
+                Debug.Log($"2. 経由点: {waypoint}");
+                Debug.Log($"3. 最終目標: {targetPosition}");
             }
 
-            // エンターキーを押した場合は、3秒待機してから開始
+            // エンターキーを押した場合は、5秒待機してから開始
             _isDelayedStart = true;
             _delayTimer = startDelayTime;
             _isMoving = false;
             _isWaiting = false;
+            _hasReachedWaypoint = false; // 経由点到達フラグをリセット
 
             // 強制的に初期位置に設定
             transform.position = startPosition;
@@ -294,7 +303,7 @@ public class HumanMWalker : MonoBehaviour
             {
                 // 待機完了、歩行開始
                 _isDelayedStart = false;
-                _currentTarget = targetPosition;
+                _currentTarget = waypoint; // 最初は経由点へ
                 _isMoving = true;
                 _isWaiting = false;
 
@@ -304,7 +313,8 @@ public class HumanMWalker : MonoBehaviour
                 if (showDebugInfo)
                 {
                     Debug.Log("=== 待機完了、歩行開始 ===");
-                    Debug.Log($"HumanMWalker: 次の目標: {_currentTarget}");
+                    Debug.Log($"HumanMWalker: 最初の目標（経由点）: {_currentTarget}");
+                    Debug.Log($"HumanMWalker: 経由点到達フラグ: {_hasReachedWaypoint}");
                 }
             }
             else
@@ -354,8 +364,12 @@ public class HumanMWalker : MonoBehaviour
             }
         }
 
-        // 目標までの距離を計算
-        float distanceToTarget = Vector3.Distance(transform.position, _currentTarget);
+        // 目標までの距離を計算（XZ平面のみ）
+        Vector3 currentPos = transform.position;
+        Vector3 targetPos = _currentTarget;
+        currentPos.y = 0f; // Y軸を無視
+        targetPos.y = 0f;  // Y軸を無視
+        float distanceToTarget = Vector3.Distance(currentPos, targetPos);
 
         // 到着判定
         if (distanceToTarget <= arrivalDistance)
@@ -410,10 +424,11 @@ public class HumanMWalker : MonoBehaviour
         }
 
         // デバッグ情報（一定間隔で）
-        if (showDebugInfo && Time.frameCount % 120 == 0) // 2秒に1回
+        if (showDebugInfo && Time.frameCount % 60 == 0) // 1秒に1回
         {
             Debug.Log($"HumanMWalker: 移動中 - 現在位置: {transform.position}, 目標: {_currentTarget}, 距離: {distanceToTarget:F2}");
             Debug.Log($"HumanMWalker: 移動方向: {direction}, 移動量: {movement}");
+            Debug.Log($"HumanMWalker: 移動状態フラグ - _isMoving:{_isMoving}, _isWaiting:{_isWaiting}, _hasReachedWaypoint:{_hasReachedWaypoint}");
         }
     }
 
@@ -460,12 +475,30 @@ public class HumanMWalker : MonoBehaviour
     {
         _isMoving = false;
 
-        // ゴール位置に到着
-        if (showDebugInfo)
+        if (!_hasReachedWaypoint)
         {
-            Debug.Log("=== ゴール位置に到着 ===");
-            Debug.Log($"HumanMWalker: ゴール位置に到着しました: {targetPosition}");
-            Debug.Log("HumanMWalker: 移動完了。");
+            // 経由点に到着
+            _hasReachedWaypoint = true;
+            _currentTarget = targetPosition; // 次の目標は最終位置
+            _waitTimer = waitTime; // 待機時間を設定
+            _isWaiting = true;
+
+            if (showDebugInfo)
+            {
+                Debug.Log("=== 経由点に到着 ===");
+                Debug.Log($"HumanMWalker: 経由点に到着しました: {waypoint}");
+                Debug.Log($"HumanMWalker: 次の目標: {targetPosition}");
+            }
+        }
+        else
+        {
+            // 最終目標に到着
+            if (showDebugInfo)
+            {
+                Debug.Log("=== 最終目標に到着 ===");
+                Debug.Log($"HumanMWalker: 最終目標に到着しました: {targetPosition}");
+                Debug.Log("HumanMWalker: 移動完了。");
+            }
         }
     }
 
@@ -476,9 +509,21 @@ public class HumanMWalker : MonoBehaviour
         if (_waitTimer <= 0f)
         {
             _isWaiting = false;
+
+            // 待機後に移動を再開
+            if (_hasReachedWaypoint)
+            {
+                _isMoving = true; // 最終目標への移動を開始
+                UpdateAnimation(true, walkSpeed);
+            }
+
             if (showDebugInfo)
             {
                 Debug.Log("HumanMWalker: 待機完了");
+                if (_hasReachedWaypoint)
+                {
+                    Debug.Log($"HumanMWalker: 最終目標への移動を開始: {targetPosition}");
+                }
             }
         }
     }
@@ -494,8 +539,9 @@ public class HumanMWalker : MonoBehaviour
             _characterController.enabled = true;
         }
 
-        // ゴールを目標に設定
-        _currentTarget = targetPosition;
+        // 経由点システムの初期化
+        _currentTarget = waypoint; // 最初は経由点へ
+        _hasReachedWaypoint = false; // 経由点到達フラグをリセット
 
         _isMoving = true;
         _isWaiting = false;
@@ -508,7 +554,7 @@ public class HumanMWalker : MonoBehaviour
             Debug.Log("HumanMWalker: 歩行開始。最初からやり直します。");
             Debug.Log($"HumanMWalker: 設定位置: {startPosition}");
             Debug.Log($"HumanMWalker: 実際の位置: {transform.position}");
-            Debug.Log($"HumanMWalker: 歩行開始。目標: {_currentTarget}");
+            Debug.Log($"HumanMWalker: 最初の目標（経由点）: {_currentTarget}");
         }
     }
 
