@@ -32,8 +32,8 @@ public class BallPassController : MonoBehaviour
 	public float holdTimeAtReceiver = 0.02f; // 保持時間を最小化
 	[Tooltip("パス時の放物線の最大高さ（m）— 実際は距離に応じて上限適用")]
 	public float arcHeight = 0.35f;
-	[Tooltip("ターゲットの高さ（胸の高さを想定）")]
-	public float targetHeight = 1.2f;
+	[Tooltip("ターゲットの高さ（受け手の上半身付近）")]
+	public float targetHeight = 0.9f;
 	[Tooltip("最小パス距離（近すぎる相手はスキップ）")]
 	public float minPassDistance = 0.5f;
 	[Tooltip("ターゲット更新間隔（秒）")]
