@@ -12,7 +12,11 @@ public class BallPassController : MonoBehaviour
 	[Header("Pass Settings")]
 	[Tooltip("どのチーム同士でパスするか（White/Black）")]
 	public PassTeam passTeam = PassTeam.White;
-	// 開始/待機カプセル番号は廃止（待機中は常に番号1へ固定）
+	[Tooltip("両チーム混在パスを有効にする")]
+	public bool enableMixedTeamPassing = true;
+	[Tooltip("ランダムなパス順序を有効にする")]
+	public bool enableRandomPassOrder = true;
+
 	[Tooltip("予測位置計算を有効にする（無効にすると直線的なパスになる）")]
 	public bool enablePrediction = false;
 	[Tooltip("着地点の精度を向上させる（カプセルの中心を正確に計算）")]
@@ -21,11 +25,11 @@ public class BallPassController : MonoBehaviour
 	public bool enablePassPause = true;
 	[Tooltip("パス時の静止時間（秒）")]
 	[Range(0.1f, 3.0f)]
-	public float passPauseDuration = 1.0f;
+	public float passPauseDuration = 0.05f; // 静止時間を最小化
 	[Tooltip("ボールの移動速度（m/s）")]
-	public float passSpeed = 7.0f;
+	public float passSpeed = 20.0f; // バスケットゴリラのような激しいパス
 	[Tooltip("受け手に到達後に保持する時間（秒）")]
-	public float holdTimeAtReceiver = 0.2f;
+	public float holdTimeAtReceiver = 0.02f; // 保持時間を最小化
 	[Tooltip("パス時の放物線の最大高さ（m）— 実際は距離に応じて上限適用")]
 	public float arcHeight = 0.35f;
 	[Tooltip("ターゲットの高さ（胸の高さを想定）")]
@@ -107,7 +111,6 @@ public class BallPassController : MonoBehaviour
 	private bool _waitingForStart = true; // 外部トリガー待機
 																				// 初期（再生直後）に取得した各カプセルの位置を保存
 	private readonly Dictionary<Transform, Vector3> _initialAnchorPositions = new Dictionary<Transform, Vector3>();
-	private bool _firstPassUsesInitialAnchors = true;
 
 	// パス回数カウント用
 	private int _totalPassCount = 0; // 総パス回数
@@ -180,14 +183,15 @@ public class BallPassController : MonoBehaviour
 					Debug.Log($"BallPassController: 再生直後(1フレーム後) 記録位置 [{i}] {t.name}: {_initialAnchorPositions[t]} | 現在: {t.position}");
 				}
 			}
-		}
-		if (autoStart && _teammates.Count >= 2)
-		{
-			BeginNextPass();
-		}
-		else
-		{
-			SnapBallToTeamAnchor();
+
+			if (autoStart && _teammates.Count >= 2)
+			{
+				BeginNextPass();
+			}
+			else
+			{
+				SnapBallToTeamAnchor();
+			}
 		}
 	}
 
@@ -439,7 +443,6 @@ public class BallPassController : MonoBehaviour
 		_ball.position = position;
 	}
 
-
 	// 手動開始用API
 	public void StartPassingNow()
 	{
@@ -464,7 +467,6 @@ public class BallPassController : MonoBehaviour
 	public void ResumePassing()
 	{
 		RefreshTeammates();
-		// 開始フラグは直前でのみ降ろす（早期にfalseにしない）
 
 		// エンター押下直後は1.0秒間、全エージェントの高さ変化を停止
 		if (CourtManager.Instance != null)
