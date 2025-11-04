@@ -30,6 +30,16 @@ public class BasketballAgentController : MonoBehaviour
     [Tooltip("回避の強さ")]
     public float avoidanceStrength = 12.0f; // 回避力を大幅に強化
 
+    [Header("Human Avoidance")]
+    [Tooltip("HumanM_Model（人型）回避を有効にする")]
+    public bool enableHumanAvoidance = true;
+    [Tooltip("HumanM_Model（人型）からの回避半径")]
+    public float humanAvoidanceRadius = 1.8f;
+    [Tooltip("HumanM_Model（人型）からの回避の強さ")]
+    public float humanAvoidanceStrength = 18.0f;
+    [Tooltip("HumanM_Model に割り当てたレイヤー（未設定でも動作します）")]
+    public LayerMask humanLayer;
+
     [Header("Boundary")]
     [Tooltip("境界からの余裕距離")]
     public float boundaryPadding = 0.3f; // 端に寄りすぎない範囲で緩和
@@ -39,6 +49,12 @@ public class BasketballAgentController : MonoBehaviour
     public float boundaryForceMultiplier = 2.5f; // 押し戻し強め
     [Tooltip("最大境界押し戻し力")]
     public float maxBoundaryForce = 15f; // 最大境界押し戻し力
+
+    [Header("Y Lock")]
+    [Tooltip("Y座標を固定する")]
+    public bool lockYPosition = true;
+    [Tooltip("固定するY座標値")]
+    public float fixedY = 0.953f;
     [Tooltip("Z軸方向の追加パディング")]
     public float zBoundaryExtraPadding = 0.8f; // Z軸方向の追加パディング
     [Tooltip("予測的境界チェック距離")]
@@ -352,6 +368,10 @@ public class BasketballAgentController : MonoBehaviour
         desired += ComputeRoamSeek();
         desired += ComputeSeparation();
         desired += ComputeAvoidance();
+        if (enableHumanAvoidance)
+        {
+            desired += ComputeHumanAvoidance();
+        }
 
         // 境界維持を最優先
         desired += boundaryForce;
@@ -411,8 +431,9 @@ public class BasketballAgentController : MonoBehaviour
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, turnSpeedDegPerSec * Time.deltaTime);
         }
 
-        // 重力はオフ相当で地面に貼り付く
+        // 重力はオフ相当で地面に貼り付く（Y は常にゼロ移動）
         Vector3 delta = _velocity * Time.deltaTime;
+        delta.y = 0f;
 
         // 衝突検出を改善
         CollisionFlags collisionFlags = _cc.Move(delta);
@@ -425,7 +446,30 @@ public class BasketballAgentController : MonoBehaviour
             if (separationForce.sqrMagnitude > 0.1f)
             {
                 Vector3 emergencyDelta = separationForce * Time.deltaTime * 5f; // 緊急分離
+                emergencyDelta.y = 0f;
                 _cc.Move(emergencyDelta);
+            }
+
+            // 人型にも引っかかった可能性があるので追加回避
+            if (enableHumanAvoidance)
+            {
+                Vector3 humanForce = ComputeHumanAvoidance();
+                if (humanForce.sqrMagnitude > 0.05f)
+                {
+                    Vector3 humanDelta = humanForce * Time.deltaTime * 5f;
+                    humanDelta.y = 0f;
+                    _cc.Move(humanDelta);
+                }
+            }
+        }
+
+        // 最後にY固定
+        if (lockYPosition)
+        {
+            Vector3 p = transform.position;
+            if (Mathf.Abs(p.y - fixedY) > 0.0001f)
+            {
+                _cc.Move(new Vector3(0f, fixedY - p.y, 0f));
             }
         }
 
@@ -445,6 +489,8 @@ public class BasketballAgentController : MonoBehaviour
         // 次フレーム用に状態を保持
         _heightWasEnabled = enableHeightVariation;
     }
+
+    private void StickToGround() { }
 
     private void ApplyHeightVariation()
     {
@@ -503,10 +549,12 @@ public class BasketballAgentController : MonoBehaviour
         _wanderTarget += new Vector3(jitterX, 0f, jitterZ) * Time.deltaTime;
         _wanderTarget = transform.position + (transform.forward * wanderDistance) + (_wanderTarget - transform.position).normalized * wanderRadius;
 
-        // ワンダーターゲットを境界内に制限
+        // ワンダーターゲットを境界内に制限（Yは固定）
         _wanderTarget = ClampPositionToBounds(_wanderTarget);
+        _wanderTarget.y = transform.position.y;
 
         Vector3 steering = (_wanderTarget - transform.position);
+        steering.y = 0f;
         return steering;
     }
 
@@ -662,6 +710,70 @@ public class BasketballAgentController : MonoBehaviour
             // 回避力をさらに強化
             force *= avoidanceStrength * 2f;
         }
+        return force;
+    }
+
+    private Vector3 ComputeHumanAvoidance()
+    {
+        Vector3 force = Vector3.zero;
+        int count = 0;
+
+        // 1) レイヤー優先で検出（設定推奨）
+        if (humanLayer.value != 0)
+        {
+            Collider[] cols = Physics.OverlapSphere(transform.position, humanAvoidanceRadius, humanLayer, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < cols.Length; i++)
+            {
+                var t = cols[i].transform;
+                if (t == null || t == transform) continue;
+                Vector3 toMe = transform.position - t.position;
+                float dist = toMe.magnitude;
+                if (dist > 0.0001f && dist < humanAvoidanceRadius)
+                {
+                    float strength = (1f - dist / humanAvoidanceRadius);
+                    strength = strength * strength * 1.5f; // 強化
+                    // 進行方向に対して側方へも逃がす
+                    Vector3 away = toMe.normalized;
+                    Vector3 side = Vector3.Cross(Vector3.up, (_velocity.sqrMagnitude > 0.01f ? _velocity.normalized : transform.forward));
+                    away = (away + side * 0.9f).normalized; // より横に逃げる
+                    force += away * strength;
+                    count++;
+                }
+            }
+        }
+
+        // 2) レイヤー未設定時は名前でフォールバック検出
+        if (count == 0)
+        {
+            var humans = GameObject.FindObjectsOfType<Transform>();
+            for (int i = 0; i < humans.Length; i++)
+            {
+                var t = humans[i];
+                if (t == null || t == transform) continue;
+                string n = t.gameObject.name.ToLower();
+                if (!(n.Contains("humanm") || n.Contains("human_model") || n.Contains("humanm_model"))) continue;
+
+                Vector3 toMe = transform.position - t.position;
+                float dist = toMe.magnitude;
+                if (dist > 0.0001f && dist < humanAvoidanceRadius)
+                {
+                    float strength = (1f - dist / humanAvoidanceRadius);
+                    strength = strength * strength * 1.5f; // 強化
+                    Vector3 away = toMe.normalized;
+                    Vector3 side = Vector3.Cross(Vector3.up, (_velocity.sqrMagnitude > 0.01f ? _velocity.normalized : transform.forward));
+                    away = (away + side * 0.9f).normalized; // より横に逃げる
+                    force += away * strength;
+                    count++;
+                }
+            }
+        }
+
+        if (count > 0)
+        {
+            force /= count;
+            force *= humanAvoidanceStrength;
+        }
+
         return force;
     }
 

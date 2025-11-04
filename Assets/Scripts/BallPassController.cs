@@ -951,6 +951,12 @@ public class BallPassController : MonoBehaviour
 	// 速度情報とパス回数を画面に表示
 	private void OnGUI()
 	{
+		// Whiteチームのボールのみ表示（重複表示を防ぐ）
+		if (passTeam != PassTeam.White)
+		{
+			return;
+		}
+
 		// 速度情報の表示（実測速度を追加）
 		if (showSpeedInfo)
 		{
