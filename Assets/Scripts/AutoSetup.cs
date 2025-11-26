@@ -1,6 +1,7 @@
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 public class AutoSetup : MonoBehaviour
 {
@@ -11,6 +12,23 @@ public class AutoSetup : MonoBehaviour
         var go = new GameObject("AutoSetup");
         go.AddComponent<AutoSetup>();
         Object.DontDestroyOnLoad(go);
+    }
+
+    private void OnEnable()
+    {
+        // シーンが読み込まれるたびに初期化を実行
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        // シーン読み込み後に初期化を実行
+        InitializeScene();
     }
 
     [Tooltip("Capsule オブジェクト名の接頭辞。該当名を持つオブジェクトを自動検出します。")]
@@ -41,8 +59,17 @@ public class AutoSetup : MonoBehaviour
 
     private void Start()
     {
+        // 最初のシーン読み込み時にも初期化を実行
+        InitializeScene();
+    }
+
+    private void InitializeScene()
+    {
         // すべてのコンソール出力を無効化
         Debug.unityLogger.logEnabled = false;
+
+        // 前のシーンから残っているDirectional Lightを削除（現在のシーンのもの以外）
+        CleanupOldDirectionalLights();
 
         EnsureCourtManager();
         AttachAgents();
@@ -58,6 +85,65 @@ public class AutoSetup : MonoBehaviour
         if (adjustReflectionProbes)
         {
             ApplyReflectionProbeSettings();
+        }
+
+        // カメラの状態を確認（少なくとも1つのカメラが有効であることを確認）
+        EnsureAtLeastOneCameraEnabled();
+    }
+
+    private void CleanupOldDirectionalLights()
+    {
+        // 現在のアクティブなシーンを取得
+        Scene currentScene = SceneManager.GetActiveScene();
+
+        // すべてのDirectional Lightを検索
+        Light[] allLights = FindObjectsOfType<Light>();
+        foreach (Light light in allLights)
+        {
+            // Directional Lightで、かつ現在のシーンに属していないものを削除
+            if (light.type == LightType.Directional &&
+                light.gameObject.name == "Directional Light" &&
+                light.gameObject.scene != currentScene)
+            {
+                Debug.Log($"AutoSetup: 前のシーンから残っているDirectional Lightを削除: {light.gameObject.name} (シーン: {light.gameObject.scene.name})");
+                Destroy(light.gameObject);
+            }
+        }
+    }
+
+    private void EnsureAtLeastOneCameraEnabled()
+    {
+        // シーン内のすべてのカメラを取得
+        Camera[] allCameras = FindObjectsOfType<Camera>();
+        bool hasEnabledCamera = false;
+
+        foreach (Camera cam in allCameras)
+        {
+            if (cam.enabled && cam.gameObject.activeInHierarchy)
+            {
+                hasEnabledCamera = true;
+                break;
+            }
+        }
+
+        // 有効なカメラがない場合は、メインカメラを有効化
+        if (!hasEnabledCamera)
+        {
+            Camera mainCamera = Camera.main;
+            if (mainCamera != null)
+            {
+                mainCamera.enabled = true;
+                Debug.LogWarning("AutoSetup: 有効なカメラが見つかりませんでした。メインカメラを有効化しました。");
+            }
+            else
+            {
+                // メインカメラもない場合は、最初に見つかったカメラを有効化
+                if (allCameras.Length > 0)
+                {
+                    allCameras[0].enabled = true;
+                    Debug.LogWarning($"AutoSetup: カメラが見つかりませんでした。{allCameras[0].name}を有効化しました。");
+                }
+            }
         }
     }
 
@@ -142,13 +228,25 @@ public class AutoSetup : MonoBehaviour
     {
         if (!setupFirstPersonCamera) return;
 
+        // メインカメラを取得（メソッド全体で使用）
+        Camera mainCamera = Camera.main;
+
         // head-cameraオブジェクトを検索
         GameObject headCamera = GameObject.Find("head-camera");
         if (headCamera == null)
         {
-            Debug.LogWarning("AutoSetup: head-cameraが見つかりませんでした。");
+            Debug.LogWarning("AutoSetup: head-cameraが見つかりませんでした。メインカメラを使用します。");
+            // head-cameraが見つからない場合は、メインカメラを有効のままにする
+            if (mainCamera != null)
+            {
+                mainCamera.enabled = true;
+                mainCamera.gameObject.SetActive(true);
+            }
             return;
         }
+
+        // head-cameraのGameObjectを有効化（重要！）
+        headCamera.SetActive(true);
 
         Debug.Log($"AutoSetup: head-cameraを検出しました - 位置: {headCamera.transform.position}, ローカル位置: {headCamera.transform.localPosition}");
 
@@ -166,16 +264,32 @@ public class AutoSetup : MonoBehaviour
             camera = headCamera.AddComponent<Camera>();
         }
 
+        // head-cameraのカメラを有効化
+        camera.enabled = true;
+
+        // カメラの基本設定を確認・修正
+        // Skyboxがない場合に備えて、Solid Colorにフォールバック
+        if (RenderSettings.skybox == null && camera.clearFlags == CameraClearFlags.Skybox)
+        {
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0.192f, 0.302f, 0.475f, 0f); // メインカメラと同じ色
+        }
+
+        // カメラの深度を確認（メインカメラより高くする）
+        if (mainCamera != null && mainCamera.gameObject != headCamera)
+        {
+            camera.depth = mainCamera.depth + 1; // メインカメラより前に描画
+        }
+
         Debug.Log("AutoSetup: head-cameraにFirstPersonCameraをアタッチしました: " + headCamera.name);
 
-        // メインカメラを無効化（オプション）
+        // メインカメラを無効化（head-cameraが見つかった場合のみ）
         if (disableMainCamera)
         {
-            Camera mainCamera = Camera.main;
             if (mainCamera != null && mainCamera.gameObject != headCamera)
             {
                 mainCamera.enabled = false;
-                Debug.Log("AutoSetup: メインカメラを無効化しました");
+                Debug.Log("AutoSetup: メインカメラを無効化しました（head-cameraを使用）");
             }
         }
     }
