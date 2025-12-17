@@ -24,6 +24,8 @@ public class EyeDataRecorder : MonoBehaviour
     private float recordInterval;
     private float lastStatusLogTime;
     private bool hasLoggedFirstData = false;
+    // エンター押下で測定開始した時間
+    private float measurementStartTime = -1f;
 
     // 視線データ構造
     [System.Serializable]
@@ -163,6 +165,7 @@ public class EyeDataRecorder : MonoBehaviour
         nextRecordTime = Time.time; // 次の記録時刻を初期化
         lastStatusLogTime = Time.time; // ステータスログの時刻を初期化
         hasLoggedFirstData = false; // 初回データログフラグをリセット
+        measurementStartTime = Time.time; // エンター押下時刻を記録
 
         Debug.Log($"[EyeDataRecorder] ===== データ記録を開始しました（{targetRecordingFrequency}Hz） =====");
         Debug.Log($"[EyeDataRecorder] 視線データ・瞳孔データの取得を開始します...");
@@ -417,20 +420,26 @@ public class EyeDataRecorder : MonoBehaviour
         style.fontSize = 24;
         style.normal.textColor = isRecording ? Color.red : Color.green;
 
-        string status = isRecording ? "記録中..." : "待機中";
-        GUI.Label(new Rect(10, 10, 300, 50), $"[EyeDataRecorder] {status}", style);
+        // 記録中の情報は左上に表示する
+        float panelWidth = 360f;
+        float panelX = 10f;
 
-        GUI.Label(new Rect(10, 60, 400, 30), "エンターキーで記録開始/停止");
+        string status = isRecording ? "記録中..." : "待機中";
+        GUI.Label(new Rect(panelX, 10, panelWidth, 50), $"[EyeDataRecorder] {status}", style);
+
+        GUI.Label(new Rect(panelX, 60, panelWidth, 30), "エンターキーで記録開始/停止");
 
         if (isRecording)
         {
             float recordingDuration = Time.time - recordingStartTime;
             float actualFrequency = gazeDataList.Count > 0 ? gazeDataList.Count / recordingDuration : 0f;
+            float elapsedSinceStart = measurementStartTime > 0f ? Time.time - measurementStartTime : recordingDuration;
 
-            GUI.Label(new Rect(10, 100, 400, 30), $"視線データ: {gazeDataList.Count}件");
-            GUI.Label(new Rect(10, 130, 400, 30), $"瞳孔データ: {pupilDataList.Count}件");
-            GUI.Label(new Rect(10, 160, 400, 30), $"実際の周波数: {actualFrequency:F1}Hz / {targetRecordingFrequency}Hz");
-            GUI.Label(new Rect(10, 190, 400, 30), $"記録時間: {recordingDuration:F2}秒");
+            GUI.Label(new Rect(panelX, 100, panelWidth, 30), $"視線データ: {gazeDataList.Count}件");
+            GUI.Label(new Rect(panelX, 130, panelWidth, 30), $"瞳孔データ: {pupilDataList.Count}件");
+            GUI.Label(new Rect(panelX, 160, panelWidth, 30), $"実際の周波数: {actualFrequency:F1}Hz / {targetRecordingFrequency}Hz");
+            GUI.Label(new Rect(panelX, 190, panelWidth, 30), $"記録時間: {recordingDuration:F2}秒");
+            GUI.Label(new Rect(panelX, 220, panelWidth, 30), $"開始からの経過: {elapsedSinceStart:F2}秒");
         }
     }
 }

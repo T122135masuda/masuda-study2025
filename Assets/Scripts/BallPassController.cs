@@ -957,10 +957,14 @@ public class BallPassController : MonoBehaviour
 			return;
 		}
 
+		// 右上にパネルを寄せて左側の表示と重ならないようにする
+		float panelWidth = 320f;
+		float panelX = Mathf.Max(10f, Screen.width - panelWidth - 10f);
+
 		// 速度情報の表示（実測速度を追加）
 		if (showSpeedInfo)
 		{
-			GUILayout.BeginArea(new Rect(10, 10, 300, 200));
+			GUILayout.BeginArea(new Rect(panelX, 10, panelWidth, 200));
 			GUILayout.Label("=== ボール速度調整 ===", GUI.skin.box);
 			GUILayout.Label($"目標速度(設定): {targetSpeed:F1} m/s");
 			GUILayout.Label($"実測速度: {_actualSpeed:F2} m/s");
@@ -982,7 +986,8 @@ public class BallPassController : MonoBehaviour
 			style.fontSize = passCountFontSize;
 			style.normal.textColor = Color.white;
 
-			GUILayout.BeginArea(new Rect(passCountDisplayOffset.x, passCountDisplayOffset.y, 300, 100));
+			float counterX = panelX + Mathf.Max(0f, passCountDisplayOffset.x);
+			GUILayout.BeginArea(new Rect(counterX, passCountDisplayOffset.y, panelWidth, 100));
 			GUILayout.Label("=== パス回数 ===", GUI.skin.box);
 			GUILayout.Label($"総パス回数: {_totalPassCount}", style);
 			GUILayout.Label($"セッション内: {_currentSessionPassCount}", style);
