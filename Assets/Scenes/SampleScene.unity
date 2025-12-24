@@ -1333,6 +1333,7 @@ Transform:
   - {fileID: 48188673}
   - {fileID: 2094249063}
   - {fileID: 901108824}
+  - {fileID: 1047703565}
   m_Father: {fileID: 1951483002}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &569844031
@@ -2541,6 +2542,51 @@ Animation:
   m_PlayAutomatically: 1
   m_AnimatePhysics: 0
   m_CullingType: 0
+--- !u!1 &1047703564
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1047703565}
+  - component: {fileID: 1047703566}
+  m_Layer: 0
+  m_Name: InputActionManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1047703565
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1047703564}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: -1.1176, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 501247655}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1047703566
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1047703564}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 714ea7e0f14d70748906de4fb7d46053, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  leftTriggerAction: {fileID: -2913370824462911844, guid: 19ea50aeaa0a56f409fcb41fb0ef0df0, type: 3}
 --- !u!1 &1154878627
 GameObject:
   m_ObjectHideFlags: 0
@@ -3916,6 +3962,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   gazeDataFileName: GazeData
   pupilDataFileName: PupilData
+  anchorDataFileName: AnchorData
   targetRecordingFrequency: 120
 --- !u!1 &1951483000
 GameObject:

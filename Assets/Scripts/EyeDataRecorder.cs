@@ -13,12 +13,14 @@ public class EyeDataRecorder : MonoBehaviour
     [Header("Recording Settings")]
     public string gazeDataFileName = "GazeData";
     public string pupilDataFileName = "PupilData";
+    public string anchorDataFileName = "AnchorData"; // アンカーデータのファイル名
     [Range(30, 120)]
     public int targetRecordingFrequency = 120; // 目標記録周波数（Hz）
 
     private bool isRecording = false;
     private List<GazeData> gazeDataList = new List<GazeData>();
     private List<PupilData> pupilDataList = new List<PupilData>();
+    private List<AnchorData> anchorDataList = new List<AnchorData>(); // アンカーデータのリスト
 
     private string dataFolderPath;
     private float recordingStartTime;
@@ -61,6 +63,14 @@ public class EyeDataRecorder : MonoBehaviour
         public Vector2 rightPupilPosition;
     }
 
+    // アンカーデータ構造
+    [System.Serializable]
+    public struct AnchorData
+    {
+        public float timestamp; // 記録開始からの相対時間
+        public int anchorIndex; // アンカーの番号（1から開始）
+    }
+
     void Start()
     {
         // Assets/dataフォルダのパスを設定
@@ -84,6 +94,7 @@ public class EyeDataRecorder : MonoBehaviour
         Debug.Log($"[EyeDataRecorder] 目標記録周波数: {targetRecordingFrequency}Hz");
         Debug.Log($"[EyeDataRecorder] 記録間隔: {recordInterval:F6}秒");
         Debug.Log("[EyeDataRecorder] エンターキーを押して記録を開始/停止してください");
+        Debug.Log("[EyeDataRecorder] スペースキーを押してアンカーを打てます（記録中のみ有効）");
 
         // アイトラッカーAPIのテスト呼び出し（初期化確認）
         try
@@ -133,6 +144,12 @@ public class EyeDataRecorder : MonoBehaviour
             }
         }
 
+        // スペースキーでアンカーを打つ（記録中のみ有効）
+        if (isRecording && Input.GetKeyDown(KeyCode.Space))
+        {
+            RecordAnchor();
+        }
+
         // 記録中の場合、指定された周波数でデータを収集
         if (isRecording && Time.time >= nextRecordTime)
         {
@@ -171,6 +188,7 @@ public class EyeDataRecorder : MonoBehaviour
         isRecording = true;
         gazeDataList.Clear();
         pupilDataList.Clear();
+        anchorDataList.Clear(); // アンカーデータもクリア
         recordingStartTime = Time.time; // 記録開始時刻を設定
         nextRecordTime = Time.time; // 次の記録時刻を初期化
         lastStatusLogTime = Time.time; // ステータスログの時刻を初期化
@@ -213,6 +231,7 @@ public class EyeDataRecorder : MonoBehaviour
         // CSVファイルに保存
         SaveGazeDataToCSV();
         SavePupilDataToCSV();
+        SaveAnchorDataToCSV(); // アンカーデータも保存
 
         float recordingDuration = Time.time - recordingStartTime;
         float actualFrequency = gazeDataList.Count / recordingDuration;
@@ -221,6 +240,7 @@ public class EyeDataRecorder : MonoBehaviour
         Debug.Log($"[EyeDataRecorder] 記録時間: {recordingDuration:F2}秒");
         Debug.Log($"[EyeDataRecorder] 視線データ: {gazeDataList.Count}件");
         Debug.Log($"[EyeDataRecorder] 瞳孔データ: {pupilDataList.Count}件");
+        Debug.Log($"[EyeDataRecorder] アンカーデータ: {anchorDataList.Count}件");
         Debug.Log($"[EyeDataRecorder] 実際の記録周波数: {actualFrequency:F1}Hz");
     }
 
@@ -510,6 +530,80 @@ public class EyeDataRecorder : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// スペースキーが押されたときにアンカーを記録
+    /// </summary>
+    void RecordAnchor()
+    {
+        float anchorTime = Time.time - recordingStartTime;
+        int anchorIndex = anchorDataList.Count + 1;
+
+        AnchorData anchor = new AnchorData
+        {
+            timestamp = anchorTime,
+            anchorIndex = anchorIndex
+        };
+
+        anchorDataList.Add(anchor);
+        Debug.Log($"[EyeDataRecorder] ✓ アンカー #{anchorIndex} を記録しました (タイムスタンプ: {anchorTime:F3}秒)");
+    }
+
+    /// <summary>
+    /// アンカーデータをCSVファイルに保存
+    /// </summary>
+    void SaveAnchorDataToCSV()
+    {
+        if (anchorDataList.Count == 0)
+        {
+            Debug.LogWarning("[EyeDataRecorder] アンカーデータがありません");
+            return;
+        }
+
+        try
+        {
+            // フォルダが存在しない場合は再作成
+            if (!Directory.Exists(dataFolderPath))
+            {
+                Directory.CreateDirectory(dataFolderPath);
+                Debug.Log($"[EyeDataRecorder] データフォルダを再作成しました: {dataFolderPath}");
+            }
+
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string fileName = $"{anchorDataFileName}_{timestamp}.csv";
+            string filePath = Path.Combine(dataFolderPath, fileName).Replace('/', Path.DirectorySeparatorChar);
+
+            Debug.Log($"[EyeDataRecorder] アンカーデータの保存を開始します... パス: {filePath}");
+
+            StringBuilder csv = new StringBuilder();
+
+            // ヘッダー行
+            csv.AppendLine("AnchorIndex,Timestamp");
+
+            // データ行
+            foreach (var anchor in anchorDataList)
+            {
+                csv.AppendLine($"{anchor.anchorIndex},{anchor.timestamp:F3}");
+            }
+
+            File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
+
+            // ファイルが実際に存在するか確認
+            if (File.Exists(filePath))
+            {
+                long fileSize = new FileInfo(filePath).Length;
+                Debug.Log($"[EyeDataRecorder] ✓ アンカーデータを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {anchorDataList.Count}件)");
+            }
+            else
+            {
+                Debug.LogError($"[EyeDataRecorder] ✗ ファイルの保存に失敗しました: {filePath}");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[EyeDataRecorder] ✗ アンカーデータの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
+        }
+    }
+
     void OnGUI()
     {
         // 画面上に現在の状態を表示
@@ -542,9 +636,11 @@ public class EyeDataRecorder : MonoBehaviour
 
             GUI.Label(new Rect(panelX, 100, panelWidth, 30), $"視線データ: {gazeDataList.Count}件");
             GUI.Label(new Rect(panelX, 130, panelWidth, 30), $"瞳孔データ: {pupilDataList.Count}件");
-            GUI.Label(new Rect(panelX, 160, panelWidth, 30), $"実際の周波数: {actualFrequency:F1}Hz / {targetRecordingFrequency}Hz");
-            GUI.Label(new Rect(panelX, 190, panelWidth, 30), $"記録時間: {recordingDuration:F2}秒");
-            GUI.Label(new Rect(panelX, 220, panelWidth, 30), $"開始からの経過: {elapsedSinceStart:F2}秒");
+            GUI.Label(new Rect(panelX, 160, panelWidth, 30), $"アンカー: {anchorDataList.Count}件");
+            GUI.Label(new Rect(panelX, 190, panelWidth, 30), $"実際の周波数: {actualFrequency:F1}Hz / {targetRecordingFrequency}Hz");
+            GUI.Label(new Rect(panelX, 220, panelWidth, 30), $"記録時間: {recordingDuration:F2}秒");
+            GUI.Label(new Rect(panelX, 250, panelWidth, 30), $"開始からの経過: {elapsedSinceStart:F2}秒");
+            GUI.Label(new Rect(panelX, 280, panelWidth, 30), "スペースキーでアンカーを打てます");
 
             // 自動終了するシーンの場合は残り時間を表示
             if (RequiresAutoStop())
@@ -553,11 +649,11 @@ public class EyeDataRecorder : MonoBehaviour
                 float remainingTime = autoStopDuration - recordingDuration;
                 if (remainingTime > 0f)
                 {
-                    GUI.Label(new Rect(panelX, 250, panelWidth, 30), $"残り時間: {remainingTime:F1}秒");
+                    GUI.Label(new Rect(panelX, 310, panelWidth, 30), $"残り時間: {remainingTime:F1}秒");
                 }
                 else
                 {
-                    GUI.Label(new Rect(panelX, 250, panelWidth, 30), "まもなく終了...");
+                    GUI.Label(new Rect(panelX, 310, panelWidth, 30), "まもなく終了...");
                 }
             }
         }
