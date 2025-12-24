@@ -1,6 +1,8 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using VIVE.OpenXR;
 using VIVE.OpenXR.EyeTracker;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -26,6 +28,10 @@ public class EyeDataRecorder : MonoBehaviour
     private bool hasLoggedFirstData = false;
     // エンター押下で測定開始した時間
     private float measurementStartTime = -1f;
+    // 自動終了コルーチン
+    private Coroutine autoStopCoroutine = null;
+    private const float AUTO_STOP_DURATION_SAMPLE_SCENE = 25.0f; // SampleScene: 25秒後に自動終了
+    private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 60.0f; // SampleScene1/2: 60秒後に自動終了
 
     // 視線データ構造
     [System.Serializable]
@@ -119,7 +125,11 @@ public class EyeDataRecorder : MonoBehaviour
             }
             else
             {
-                StopRecording();
+                // 自動終了するシーンの場合は、エンターキーでの終了は無効
+                if (!RequiresAutoStop())
+                {
+                    StopRecording();
+                }
             }
         }
 
@@ -167,13 +177,38 @@ public class EyeDataRecorder : MonoBehaviour
         hasLoggedFirstData = false; // 初回データログフラグをリセット
         measurementStartTime = Time.time; // エンター押下時刻を記録
 
-        Debug.Log($"[EyeDataRecorder] ===== データ記録を開始しました（{targetRecordingFrequency}Hz） =====");
-        Debug.Log($"[EyeDataRecorder] 視線データ・瞳孔データの取得を開始します...");
+        // 自動終了が必要なシーンの場合は、指定秒数後に自動終了するコルーチンを開始
+        if (RequiresAutoStop())
+        {
+            float autoStopDuration = GetAutoStopDuration();
+            if (autoStopCoroutine != null)
+            {
+                StopCoroutine(autoStopCoroutine);
+            }
+            autoStopCoroutine = StartCoroutine(AutoStopAfterDelay(autoStopDuration));
+            string sceneName = SceneManager.GetActiveScene().name;
+            Debug.Log($"[EyeDataRecorder] ===== データ記録を開始しました（{targetRecordingFrequency}Hz） =====");
+            Debug.Log($"[EyeDataRecorder] {sceneName}: {autoStopDuration}秒後に自動終了します");
+            Debug.Log($"[EyeDataRecorder] 視線データ・瞳孔データの取得を開始します...");
+        }
+        else
+        {
+            Debug.Log($"[EyeDataRecorder] ===== データ記録を開始しました（{targetRecordingFrequency}Hz） =====");
+            Debug.Log($"[EyeDataRecorder] 視線データ・瞳孔データの取得を開始します...");
+            Debug.Log("[EyeDataRecorder] エンターキーを押して記録を停止してください");
+        }
     }
 
     void StopRecording()
     {
         isRecording = false;
+
+        // 自動終了コルーチンを停止
+        if (autoStopCoroutine != null)
+        {
+            StopCoroutine(autoStopCoroutine);
+            autoStopCoroutine = null;
+        }
 
         // CSVファイルに保存
         SaveGazeDataToCSV();
@@ -187,6 +222,68 @@ public class EyeDataRecorder : MonoBehaviour
         Debug.Log($"[EyeDataRecorder] 視線データ: {gazeDataList.Count}件");
         Debug.Log($"[EyeDataRecorder] 瞳孔データ: {pupilDataList.Count}件");
         Debug.Log($"[EyeDataRecorder] 実際の記録周波数: {actualFrequency:F1}Hz");
+    }
+
+    /// <summary>
+    /// 現在のシーンがSampleSceneかどうかを判定
+    /// </summary>
+    private bool IsSampleScene()
+    {
+        return SceneManager.GetActiveScene().name == "SampleScene";
+    }
+
+    /// <summary>
+    /// 現在のシーンがSampleScene1かどうかを判定
+    /// </summary>
+    private bool IsSampleScene1()
+    {
+        return SceneManager.GetActiveScene().name == "SampleScene1";
+    }
+
+    /// <summary>
+    /// 現在のシーンがSampleScene2かどうかを判定
+    /// </summary>
+    private bool IsSampleScene2()
+    {
+        return SceneManager.GetActiveScene().name == "SampleScene2";
+    }
+
+    /// <summary>
+    /// 現在のシーンが自動終了を必要とするかどうかを判定
+    /// </summary>
+    private bool RequiresAutoStop()
+    {
+        return IsSampleScene() || IsSampleScene1() || IsSampleScene2();
+    }
+
+    /// <summary>
+    /// 現在のシーンに応じた自動終了時間を取得
+    /// </summary>
+    private float GetAutoStopDuration()
+    {
+        if (IsSampleScene())
+        {
+            return AUTO_STOP_DURATION_SAMPLE_SCENE;
+        }
+        else if (IsSampleScene1() || IsSampleScene2())
+        {
+            return AUTO_STOP_DURATION_SAMPLE_SCENE_1_2;
+        }
+        return 0f; // 自動終了しないシーンの場合
+    }
+
+    /// <summary>
+    /// 指定秒数後に自動で記録を終了するコルーチン
+    /// </summary>
+    private IEnumerator AutoStopAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (isRecording)
+        {
+            Debug.Log($"[EyeDataRecorder] {delay}秒経過しました。自動で記録を終了します。");
+            StopRecording();
+        }
     }
 
     void RecordGazeData()
@@ -427,7 +524,15 @@ public class EyeDataRecorder : MonoBehaviour
         string status = isRecording ? "記録中..." : "待機中";
         GUI.Label(new Rect(panelX, 10, panelWidth, 50), $"[EyeDataRecorder] {status}", style);
 
-        GUI.Label(new Rect(panelX, 60, panelWidth, 30), "エンターキーで記録開始/停止");
+        if (RequiresAutoStop())
+        {
+            float autoStopDuration = GetAutoStopDuration();
+            GUI.Label(new Rect(panelX, 60, panelWidth, 30), $"エンターキーで記録開始（{autoStopDuration}秒で自動終了）");
+        }
+        else
+        {
+            GUI.Label(new Rect(panelX, 60, panelWidth, 30), "エンターキーで記録開始/停止");
+        }
 
         if (isRecording)
         {
@@ -440,6 +545,21 @@ public class EyeDataRecorder : MonoBehaviour
             GUI.Label(new Rect(panelX, 160, panelWidth, 30), $"実際の周波数: {actualFrequency:F1}Hz / {targetRecordingFrequency}Hz");
             GUI.Label(new Rect(panelX, 190, panelWidth, 30), $"記録時間: {recordingDuration:F2}秒");
             GUI.Label(new Rect(panelX, 220, panelWidth, 30), $"開始からの経過: {elapsedSinceStart:F2}秒");
+
+            // 自動終了するシーンの場合は残り時間を表示
+            if (RequiresAutoStop())
+            {
+                float autoStopDuration = GetAutoStopDuration();
+                float remainingTime = autoStopDuration - recordingDuration;
+                if (remainingTime > 0f)
+                {
+                    GUI.Label(new Rect(panelX, 250, panelWidth, 30), $"残り時間: {remainingTime:F1}秒");
+                }
+                else
+                {
+                    GUI.Label(new Rect(panelX, 250, panelWidth, 30), "まもなく終了...");
+                }
+            }
         }
     }
 }
