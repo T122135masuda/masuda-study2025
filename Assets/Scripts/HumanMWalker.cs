@@ -1,5 +1,9 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System;
 
 public class HumanMWalker : MonoBehaviour
 {
@@ -26,7 +30,7 @@ public class HumanMWalker : MonoBehaviour
     public float specialWaitTime = 3.0f;
 
     [Tooltip("エンターキー押下後の待機時間（秒）")]
-    public float startDelayTime = 5.0f;
+    public float startDelayTime = 27.0f;
 
     [Tooltip("自動開始")]
     public bool autoStart = false;
@@ -64,6 +68,12 @@ public class HumanMWalker : MonoBehaviour
     [Tooltip("デバッグ情報を表示")]
     public bool showDebugInfo = true;
 
+    [Header("Position Recording")]
+    [Tooltip("座標記録を有効にする")]
+    public bool enablePositionRecording = true;
+    [Tooltip("座標データのファイル名")]
+    public string positionDataFileName = "HumanMPositionData";
+
     private Vector3 _currentTarget;
     private bool _isMoving = false;
     private bool _isWaiting = false;
@@ -95,6 +105,24 @@ public class HumanMWalker : MonoBehaviour
     private static readonly int WalkTriggerHash = Animator.StringToHash("Walk");
     private static readonly int IdleTriggerHash = Animator.StringToHash("Idle");
 
+    // 座標記録用
+    [System.Serializable]
+    public struct PositionData
+    {
+        public float timestamp; // エンターキー押下からの相対時間
+        public Vector3 position;
+    }
+
+    private List<PositionData> _positionDataList = new List<PositionData>();
+    private float _recordingStartTime = -1f;
+    private bool _isRecording = false;
+    private const float RECORDING_DURATION = 60.0f; // 1分間記録
+    [Range(30, 120)]
+    public int targetRecordingFrequency = 120; // 目標記録周波数（Hz）
+    private float _recordInterval;
+    private float _nextRecordTime; // 次の記録時刻
+    private string _dataFolderPath;
+
     private void Start()
     {
         // コンポーネントの取得
@@ -106,6 +134,22 @@ public class HumanMWalker : MonoBehaviour
         transform.position = startPosition;
         _currentTarget = waypoint; // 最初は経由点へ
         _isMoving = false; // 初期状態では移動しない（エンターキー待ち）
+
+        // 座標記録用の初期化
+        _dataFolderPath = @"C:\Users\vrdsl\Desktop\masuda-lab\masuda-study2025\Assets\data";
+        if (!Directory.Exists(_dataFolderPath))
+        {
+            Directory.CreateDirectory(_dataFolderPath);
+            if (showDebugInfo)
+            {
+                Debug.Log($"[HumanMWalker] データフォルダを作成しました: {_dataFolderPath}");
+            }
+        }
+        _positionDataList.Clear();
+        _isRecording = false;
+        _recordingStartTime = -1f;
+        // 記録間隔を計算（秒）
+        _recordInterval = 1.0f / targetRecordingFrequency;
 
         if (showDebugInfo)
         {
@@ -271,7 +315,13 @@ public class HumanMWalker : MonoBehaviour
                 Debug.Log($"3. 最終目標: {targetPosition}");
             }
 
-            // エンターキーを押した場合は、5秒待機してから開始
+            // 座標記録を開始
+            if (enablePositionRecording)
+            {
+                StartPositionRecording();
+            }
+
+            // エンターキーを押した場合は、指定秒数待機してから開始
             _isDelayedStart = true;
             _delayTimer = startDelayTime;
             _isMoving = false;
@@ -348,6 +398,14 @@ public class HumanMWalker : MonoBehaviour
             {
                 Debug.Log($"HumanMWalker: 待機状態 - 移動中: {_isMoving}, 待機中: {_isWaiting}");
             }
+        }
+
+        // 座標記録（エンターキー押下から1分間、指定された周波数でデータを収集）
+        if (_isRecording && enablePositionRecording && Time.time >= _nextRecordTime)
+        {
+            RecordPosition();
+            _nextRecordTime = Time.time + _recordInterval;
+            CheckRecordingDuration();
         }
     }
 
@@ -833,9 +891,9 @@ public class HumanMWalker : MonoBehaviour
 
         GUILayout.Space(5);
         GUILayout.Label("操作:", GUI.skin.box);
-        GUILayout.Label("エンターキー: 3秒待機後に歩行開始");
+        GUILayout.Label($"エンターキー: {startDelayTime:F0}秒待機後に歩行開始");
         GUILayout.Label("移動手順:");
-        GUILayout.Label("1. エンターキー押下 → 3秒待機");
+        GUILayout.Label($"1. エンターキー押下 → {startDelayTime:F0}秒待機");
         GUILayout.Label("2. スタート位置 → ゴール位置へ歩行");
 
         if (_animator != null)
@@ -862,5 +920,138 @@ public class HumanMWalker : MonoBehaviour
         GUILayout.Label("Animation: 無効化されています（Legacyアニメーションエラー回避のため）", GUI.skin.box);
 
         GUILayout.EndArea();
+    }
+
+    /// <summary>
+    /// 座標記録を開始
+    /// </summary>
+    private void StartPositionRecording()
+    {
+        _recordingStartTime = Time.time;
+        _nextRecordTime = Time.time; // 次の記録時刻を初期化
+        _isRecording = true;
+        _positionDataList.Clear();
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] 座標記録を開始しました（{RECORDING_DURATION}秒間、{targetRecordingFrequency}Hzで記録）");
+        }
+    }
+
+    /// <summary>
+    /// 現在の座標を記録（EyeDataRecorderと同じ方式）
+    /// </summary>
+    private void RecordPosition()
+    {
+        if (_recordingStartTime < 0f) return;
+
+        float timestamp = Time.time - _recordingStartTime;
+
+        PositionData data = new PositionData
+        {
+            timestamp = timestamp,
+            position = transform.position
+        };
+
+        _positionDataList.Add(data);
+    }
+
+    /// <summary>
+    /// 記録時間をチェックして、1分経過したらCSVに保存
+    /// </summary>
+    private void CheckRecordingDuration()
+    {
+        if (_recordingStartTime < 0f) return;
+
+        float elapsedTime = Time.time - _recordingStartTime;
+        if (elapsedTime >= RECORDING_DURATION)
+        {
+            StopPositionRecording();
+        }
+    }
+
+    /// <summary>
+    /// 座標記録を停止してCSVに保存
+    /// </summary>
+    private void StopPositionRecording()
+    {
+        _isRecording = false;
+
+        if (_positionDataList.Count == 0)
+        {
+            if (showDebugInfo)
+            {
+                Debug.LogWarning("[HumanMWalker] 座標データがありません");
+            }
+            return;
+        }
+
+        SavePositionDataToCSV();
+
+        float recordingDuration = Time.time - _recordingStartTime;
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] 座標記録を終了しました（記録時間: {recordingDuration:F2}秒, データ件数: {_positionDataList.Count}件）");
+        }
+    }
+
+    /// <summary>
+    /// 座標データをCSVファイルに保存
+    /// </summary>
+    private void SavePositionDataToCSV()
+    {
+        try
+        {
+            // フォルダが存在しない場合は再作成
+            if (!Directory.Exists(_dataFolderPath))
+            {
+                Directory.CreateDirectory(_dataFolderPath);
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[HumanMWalker] データフォルダを再作成しました: {_dataFolderPath}");
+                }
+            }
+
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string fileName = $"{positionDataFileName}_{timestamp}.csv";
+            string filePath = Path.Combine(_dataFolderPath, fileName).Replace('/', Path.DirectorySeparatorChar);
+
+            if (showDebugInfo)
+            {
+                Debug.Log($"[HumanMWalker] 座標データの保存を開始します... パス: {filePath}");
+            }
+
+            StringBuilder csv = new StringBuilder();
+
+            // ヘッダー行
+            csv.AppendLine("Timestamp,PositionX,PositionY,PositionZ");
+
+            // データ行
+            foreach (var data in _positionDataList)
+            {
+                csv.AppendLine($"{data.timestamp:F6}," +
+                              $"{data.position.x:F6},{data.position.y:F6},{data.position.z:F6}");
+            }
+
+            File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
+
+            // ファイルが実際に存在するか確認
+            if (File.Exists(filePath))
+            {
+                long fileSize = new FileInfo(filePath).Length;
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[HumanMWalker] ✓ 座標データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {_positionDataList.Count}件)");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[HumanMWalker] ✗ ファイルの保存に失敗しました: {filePath}");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[HumanMWalker] ✗ 座標データの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
+        }
     }
 }

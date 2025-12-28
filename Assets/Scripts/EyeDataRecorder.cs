@@ -32,7 +32,7 @@ public class EyeDataRecorder : MonoBehaviour
     private float measurementStartTime = -1f;
     // 自動終了コルーチン
     private Coroutine autoStopCoroutine = null;
-    private const float AUTO_STOP_DURATION_SAMPLE_SCENE = 25.0f; // SampleScene: 25秒後に自動終了
+    private const float AUTO_STOP_DURATION_SAMPLE_SCENE = 60.0f; // SampleScene: 60秒後に自動終了
     private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 60.0f; // SampleScene1/2: 60秒後に自動終了
 
     // 視線データ構造
