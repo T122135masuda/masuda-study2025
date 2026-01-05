@@ -125,20 +125,11 @@ public class BallPassController : MonoBehaviour
 	private int _totalPassCount = 0; // 総パス回数
 	private int _currentSessionPassCount = 0; // 現在のセッションのパス回数
 
-	// 座標記録用
-	[System.Serializable]
-	public struct PositionData
-	{
-		public float timestamp; // 記録開始からの相対時間
-		public Vector3 position;
-	}
-
-	private List<PositionData> _positionDataList = new List<PositionData>();
 	private float _recordingStartTime = -1f;
 	private bool _isRecording = false;
 	private const float RECORDING_DURATION = 60.0f; // 1分間記録
-	[Range(30, 120)]
-	public int targetRecordingFrequency = 120; // 目標記録周波数（Hz）
+	[Range(10, 120)]
+	public int targetRecordingFrequency = 20; // 目標記録周波数（Hz）- 元のCSVと同じ20Hz
 	private float _recordInterval;
 	private float _nextRecordTime; // 次の記録時刻
 	private string _dataFolderPath;
@@ -177,7 +168,7 @@ public class BallPassController : MonoBehaviour
 				Debug.Log($"[BallPassController] データフォルダを作成しました: {_dataFolderPath}");
 			}
 		}
-		_positionDataList.Clear();
+		SharedPositionDataRecorder.Clear();
 		_isRecording = false;
 		_recordingStartTime = -1f;
 		// 記録間隔を計算（秒）
@@ -1060,32 +1051,33 @@ public class BallPassController : MonoBehaviour
 	private void StartPositionRecording()
 	{
 		_recordingStartTime = Time.time;
-		_nextRecordTime = Time.time; // 次の記録時刻を初期化
+		_nextRecordTime = Time.time + _recordInterval; // 次の記録時刻を初期化（最初の記録を即座に実行）
 		_isRecording = true;
-		_positionDataList.Clear();
+		// 最初の記録を即座に実行
+		RecordPosition();
+		// 共有タイムスタンプを設定
+		string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+		SharedPositionDataRecorder.SetSharedTimestamp(timestamp);
+		SharedPositionDataRecorder.SetTeamSuffix(passTeam == PassTeam.White ? "White" : "Black");
+		SharedPositionDataRecorder.SetTargetFrequency(targetRecordingFrequency);
+		SharedPositionDataRecorder.Clear();
 
 		if (enableDebugLogs)
 		{
 			Debug.Log($"[BallPassController] 座標記録を開始しました（{RECORDING_DURATION}秒間、{targetRecordingFrequency}Hzで記録）");
+			Debug.Log($"[BallPassController] 共有タイムスタンプ: {timestamp}");
 		}
 	}
 
 	/// <summary>
-	/// 現在の座標を記録（EyeDataRecorderと同じ方式）
+	/// 現在の座標を記録（共有データ構造に追加）
 	/// </summary>
 	private void RecordPosition()
 	{
 		if (_recordingStartTime < 0f || _ball == null) return;
 
 		float timestamp = Time.time - _recordingStartTime;
-
-		PositionData data = new PositionData
-		{
-			timestamp = timestamp,
-			position = _ball.position
-		};
-
-		_positionDataList.Add(data);
+		SharedPositionDataRecorder.AddBallPosition(timestamp, _ball.position);
 	}
 
 	/// <summary>
@@ -1109,84 +1101,16 @@ public class BallPassController : MonoBehaviour
 	{
 		_isRecording = false;
 
-		if (_positionDataList.Count == 0)
-		{
-			if (enableDebugLogs)
-			{
-				Debug.LogWarning("[BallPassController] 座標データがありません");
-			}
-			return;
-		}
-
-		SavePositionDataToCSV();
+		// 統合データを保存
+		SharedPositionDataRecorder.SaveToCSV(_dataFolderPath, enableDebugLogs);
 
 		float recordingDuration = Time.time - _recordingStartTime;
 		if (enableDebugLogs)
 		{
-			Debug.Log($"[BallPassController] 座標記録を終了しました（記録時間: {recordingDuration:F2}秒, データ件数: {_positionDataList.Count}件）");
+			Debug.Log($"[BallPassController] 座標記録を終了しました（記録時間: {recordingDuration:F2}秒）");
 		}
 	}
 
-	/// <summary>
-	/// 座標データをCSVファイルに保存
-	/// </summary>
-	private void SavePositionDataToCSV()
-	{
-		try
-		{
-			// フォルダが存在しない場合は再作成
-			if (!Directory.Exists(_dataFolderPath))
-			{
-				Directory.CreateDirectory(_dataFolderPath);
-				if (enableDebugLogs)
-				{
-					Debug.Log($"[BallPassController] データフォルダを再作成しました: {_dataFolderPath}");
-				}
-			}
-
-			string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-			string teamSuffix = passTeam == PassTeam.White ? "White" : "Black";
-			string fileName = $"{positionDataFileName}_{teamSuffix}_{timestamp}.csv";
-			string filePath = Path.Combine(_dataFolderPath, fileName).Replace('/', Path.DirectorySeparatorChar);
-
-			if (enableDebugLogs)
-			{
-				Debug.Log($"[BallPassController] 座標データの保存を開始します... パス: {filePath}");
-			}
-
-			StringBuilder csv = new StringBuilder();
-
-			// ヘッダー行
-			csv.AppendLine("Timestamp,PositionX,PositionY,PositionZ");
-
-			// データ行
-			foreach (var data in _positionDataList)
-			{
-				csv.AppendLine($"{data.timestamp:F6}," +
-								$"{data.position.x:F6},{data.position.y:F6},{data.position.z:F6}");
-			}
-
-			File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
-
-			// ファイルが実際に存在するか確認
-			if (File.Exists(filePath))
-			{
-				long fileSize = new FileInfo(filePath).Length;
-				if (enableDebugLogs)
-				{
-					Debug.Log($"[BallPassController] ✓ 座標データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {_positionDataList.Count}件)");
-				}
-			}
-			else
-			{
-				Debug.LogError($"[BallPassController] ✗ ファイルの保存に失敗しました: {filePath}");
-			}
-		}
-		catch (Exception e)
-		{
-			Debug.LogError($"[BallPassController] ✗ 座標データの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
-		}
-	}
 }
 
 

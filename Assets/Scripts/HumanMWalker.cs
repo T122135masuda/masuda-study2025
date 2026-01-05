@@ -105,20 +105,11 @@ public class HumanMWalker : MonoBehaviour
     private static readonly int WalkTriggerHash = Animator.StringToHash("Walk");
     private static readonly int IdleTriggerHash = Animator.StringToHash("Idle");
 
-    // 座標記録用
-    [System.Serializable]
-    public struct PositionData
-    {
-        public float timestamp; // エンターキー押下からの相対時間
-        public Vector3 position;
-    }
-
-    private List<PositionData> _positionDataList = new List<PositionData>();
     private float _recordingStartTime = -1f;
     private bool _isRecording = false;
     private const float RECORDING_DURATION = 60.0f; // 1分間記録
     [Range(30, 120)]
-    public int targetRecordingFrequency = 120; // 目標記録周波数（Hz）
+    public int targetRecordingFrequency = 20; // 目標記録周波数（Hz）- 元のCSVと同じ20Hz
     private float _recordInterval;
     private float _nextRecordTime; // 次の記録時刻
     private string _dataFolderPath;
@@ -145,7 +136,7 @@ public class HumanMWalker : MonoBehaviour
                 Debug.Log($"[HumanMWalker] データフォルダを作成しました: {_dataFolderPath}");
             }
         }
-        _positionDataList.Clear();
+        SharedPositionDataRecorder.Clear();
         _isRecording = false;
         _recordingStartTime = -1f;
         // 記録間隔を計算（秒）
@@ -320,6 +311,10 @@ public class HumanMWalker : MonoBehaviour
             {
                 StartPositionRecording();
             }
+
+            // 共有タイムスタンプを設定（BallPassControllerと同期）
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            SharedPositionDataRecorder.SetSharedTimestamp(timestamp);
 
             // エンターキーを押した場合は、指定秒数待機してから開始
             _isDelayedStart = true;
@@ -928,32 +923,33 @@ public class HumanMWalker : MonoBehaviour
     private void StartPositionRecording()
     {
         _recordingStartTime = Time.time;
-        _nextRecordTime = Time.time; // 次の記録時刻を初期化
+        _nextRecordTime = Time.time + _recordInterval; // 次の記録時刻を初期化（最初の記録を即座に実行）
         _isRecording = true;
-        _positionDataList.Clear();
+        // 最初の記録を即座に実行
+        RecordPosition();
+
+        // 共有タイムスタンプを設定
+        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        SharedPositionDataRecorder.SetSharedTimestamp(timestamp);
+        SharedPositionDataRecorder.SetTargetFrequency(targetRecordingFrequency);
+        SharedPositionDataRecorder.Clear();
 
         if (showDebugInfo)
         {
             Debug.Log($"[HumanMWalker] 座標記録を開始しました（{RECORDING_DURATION}秒間、{targetRecordingFrequency}Hzで記録）");
+            Debug.Log($"[HumanMWalker] 共有タイムスタンプ: {timestamp}");
         }
     }
 
     /// <summary>
-    /// 現在の座標を記録（EyeDataRecorderと同じ方式）
+    /// 現在の座標を記録（共有データ構造に追加）
     /// </summary>
     private void RecordPosition()
     {
         if (_recordingStartTime < 0f) return;
 
         float timestamp = Time.time - _recordingStartTime;
-
-        PositionData data = new PositionData
-        {
-            timestamp = timestamp,
-            position = transform.position
-        };
-
-        _positionDataList.Add(data);
+        SharedPositionDataRecorder.AddHumanMPosition(timestamp, transform.position);
     }
 
     /// <summary>
@@ -977,81 +973,14 @@ public class HumanMWalker : MonoBehaviour
     {
         _isRecording = false;
 
-        if (_positionDataList.Count == 0)
-        {
-            if (showDebugInfo)
-            {
-                Debug.LogWarning("[HumanMWalker] 座標データがありません");
-            }
-            return;
-        }
-
-        SavePositionDataToCSV();
+        // 統合データを保存
+        SharedPositionDataRecorder.SaveToCSV(_dataFolderPath, showDebugInfo);
 
         float recordingDuration = Time.time - _recordingStartTime;
         if (showDebugInfo)
         {
-            Debug.Log($"[HumanMWalker] 座標記録を終了しました（記録時間: {recordingDuration:F2}秒, データ件数: {_positionDataList.Count}件）");
+            Debug.Log($"[HumanMWalker] 座標記録を終了しました（記録時間: {recordingDuration:F2}秒）");
         }
     }
 
-    /// <summary>
-    /// 座標データをCSVファイルに保存
-    /// </summary>
-    private void SavePositionDataToCSV()
-    {
-        try
-        {
-            // フォルダが存在しない場合は再作成
-            if (!Directory.Exists(_dataFolderPath))
-            {
-                Directory.CreateDirectory(_dataFolderPath);
-                if (showDebugInfo)
-                {
-                    Debug.Log($"[HumanMWalker] データフォルダを再作成しました: {_dataFolderPath}");
-                }
-            }
-
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string fileName = $"{positionDataFileName}_{timestamp}.csv";
-            string filePath = Path.Combine(_dataFolderPath, fileName).Replace('/', Path.DirectorySeparatorChar);
-
-            if (showDebugInfo)
-            {
-                Debug.Log($"[HumanMWalker] 座標データの保存を開始します... パス: {filePath}");
-            }
-
-            StringBuilder csv = new StringBuilder();
-
-            // ヘッダー行
-            csv.AppendLine("Timestamp,PositionX,PositionY,PositionZ");
-
-            // データ行
-            foreach (var data in _positionDataList)
-            {
-                csv.AppendLine($"{data.timestamp:F6}," +
-                              $"{data.position.x:F6},{data.position.y:F6},{data.position.z:F6}");
-            }
-
-            File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
-
-            // ファイルが実際に存在するか確認
-            if (File.Exists(filePath))
-            {
-                long fileSize = new FileInfo(filePath).Length;
-                if (showDebugInfo)
-                {
-                    Debug.Log($"[HumanMWalker] ✓ 座標データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {_positionDataList.Count}件)");
-                }
-            }
-            else
-            {
-                Debug.LogError($"[HumanMWalker] ✗ ファイルの保存に失敗しました: {filePath}");
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[HumanMWalker] ✗ 座標データの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
-        }
-    }
 }
