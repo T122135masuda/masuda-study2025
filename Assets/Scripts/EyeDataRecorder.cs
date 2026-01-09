@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.XR;
 using VIVE.OpenXR;
 using VIVE.OpenXR.EyeTracker;
 using System.Collections;
@@ -15,6 +16,7 @@ public class EyeDataRecorder : MonoBehaviour
     public string gazeDataFileName = "GazeData";
     public string pupilDataFileName = "PupilData";
     public string anchorDataFileName = "AnchorData"; // アンカーデータのファイル名
+    public string hmdDataFileName = "HMDData"; // HMDデータのファイル名
     [Range(30, 120)]
     public int targetRecordingFrequency = 120; // 目標記録周波数（Hz）
 
@@ -22,6 +24,12 @@ public class EyeDataRecorder : MonoBehaviour
     private List<GazeData> gazeDataList = new List<GazeData>();
     private List<PupilData> pupilDataList = new List<PupilData>();
     private List<AnchorData> anchorDataList = new List<AnchorData>(); // アンカーデータのリスト
+    private List<HMDData> hmdDataList = new List<HMDData>(); // HMDデータのリスト
+
+    // HMD参照用
+    private Transform headCameraTransform = null;
+    private Vector3 lastHMDPosition = Vector3.zero;
+    private Quaternion lastHMDRotation = Quaternion.identity;
 
     private string dataFolderPath;
     private float recordingStartTime;
@@ -70,6 +78,39 @@ public class EyeDataRecorder : MonoBehaviour
     {
         public float timestamp; // 記録開始からの相対時間
         public int anchorIndex; // アンカーの番号（1から開始）
+    }
+
+    // HMDデータ構造
+    [System.Serializable]
+    public struct HMDData
+    {
+        public float timestamp; // 記録開始からの相対時間
+        public bool isValid; // データが有効かどうか
+        // 位置（Position）
+        public float positionX;
+        public float positionY;
+        public float positionZ;
+        // 回転（Quaternion）
+        public float rotationX;
+        public float rotationY;
+        public float rotationZ;
+        public float rotationW;
+        // 回転（Euler角 - 計算値）
+        public float eulerX;
+        public float eulerY;
+        public float eulerZ;
+        // 速度（取得可能な場合）
+        public bool velocityValid;
+        public float velocityX;
+        public float velocityY;
+        public float velocityZ;
+        // 角速度（取得可能な場合）
+        public bool angularVelocityValid;
+        public float angularVelocityX;
+        public float angularVelocityY;
+        public float angularVelocityZ;
+        // 座標系
+        public string coordinateSystem; // "Floor" or "Device"
     }
 
     void Start()
@@ -157,6 +198,7 @@ public class EyeDataRecorder : MonoBehaviour
             // データ取得を試行
             RecordGazeData();
             RecordPupilData();
+            RecordHMDData();
             nextRecordTime = Time.time + recordInterval;
         }
 
@@ -190,11 +232,24 @@ public class EyeDataRecorder : MonoBehaviour
         gazeDataList.Clear();
         pupilDataList.Clear();
         anchorDataList.Clear(); // アンカーデータもクリア
+        hmdDataList.Clear(); // HMDデータもクリア
         recordingStartTime = Time.time; // 記録開始時刻を設定
         nextRecordTime = Time.time; // 次の記録時刻を初期化
         lastStatusLogTime = Time.time; // ステータスログの時刻を初期化
         hasLoggedFirstData = false; // 初回データログフラグをリセット
         measurementStartTime = Time.time; // エンター押下時刻を記録
+
+        // head-cameraのTransformを取得
+        GameObject headCameraObj = GameObject.Find("head-camera");
+        if (headCameraObj != null)
+        {
+            headCameraTransform = headCameraObj.transform;
+            Debug.Log($"[EyeDataRecorder] head-cameraを検出しました - 位置: {headCameraTransform.position}");
+        }
+        else
+        {
+            Debug.LogWarning("[EyeDataRecorder] head-cameraが見つかりませんでした。HMD位置の記録に影響する可能性があります。");
+        }
 
         // 自動終了が必要なシーンの場合は、指定秒数後に自動終了するコルーチンを開始
         if (RequiresAutoStop())
@@ -233,6 +288,7 @@ public class EyeDataRecorder : MonoBehaviour
         SaveGazeDataToCSV();
         SavePupilDataToCSV();
         SaveAnchorDataToCSV(); // アンカーデータも保存
+        SaveHMDDataToCSV(); // HMDデータも保存
 
         // 統合CSVファイルに保存
         SaveUnifiedDataToCSV();
@@ -245,6 +301,7 @@ public class EyeDataRecorder : MonoBehaviour
         Debug.Log($"[EyeDataRecorder] 視線データ: {gazeDataList.Count}件");
         Debug.Log($"[EyeDataRecorder] 瞳孔データ: {pupilDataList.Count}件");
         Debug.Log($"[EyeDataRecorder] アンカーデータ: {anchorDataList.Count}件");
+        Debug.Log($"[EyeDataRecorder] HMDデータ: {hmdDataList.Count}件");
         Debug.Log($"[EyeDataRecorder] 実際の記録周波数: {actualFrequency:F1}Hz");
     }
 
@@ -411,6 +468,167 @@ public class EyeDataRecorder : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError($"[EyeDataRecorder] ✗ 瞳孔データの取得中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// HMD（ヘッドマウントディスプレイ）の位置・回転・速度データを記録
+    /// </summary>
+    void RecordHMDData()
+    {
+        try
+        {
+            HMDData data = new HMDData
+            {
+                timestamp = Time.time - recordingStartTime,
+                isValid = false,
+                velocityValid = false,
+                angularVelocityValid = false,
+                coordinateSystem = "Device" // デフォルトはDevice座標系
+            };
+
+            // 方法1: head-cameraのTransformを使用（優先）
+            if (headCameraTransform != null)
+            {
+                data.isValid = true;
+                Vector3 position = headCameraTransform.position;
+                Quaternion rotation = headCameraTransform.rotation;
+                Vector3 euler = rotation.eulerAngles;
+
+                data.positionX = position.x;
+                data.positionY = position.y;
+                data.positionZ = position.z;
+                data.rotationX = rotation.x;
+                data.rotationY = rotation.y;
+                data.rotationZ = rotation.z;
+                data.rotationW = rotation.w;
+                data.eulerX = euler.x;
+                data.eulerY = euler.y;
+                data.eulerZ = euler.z;
+                data.coordinateSystem = "Device"; // head-cameraはDevice座標系
+
+                // 速度を計算（差分から）
+                if (lastHMDPosition != Vector3.zero && Time.deltaTime > 0f)
+                {
+                    Vector3 velocity = (position - lastHMDPosition) / Time.deltaTime;
+                    data.velocityValid = true;
+                    data.velocityX = velocity.x;
+                    data.velocityY = velocity.y;
+                    data.velocityZ = velocity.z;
+                }
+
+                // 角速度を計算（差分から）- Quaternionから角速度ベクトルを計算
+                if (lastHMDRotation != Quaternion.identity && Time.deltaTime > 0f)
+                {
+                    Quaternion deltaRotation = rotation * Quaternion.Inverse(lastHMDRotation);
+                    // Quaternionから角速度ベクトルを計算
+                    float angle;
+                    Vector3 axis;
+                    deltaRotation.ToAngleAxis(out angle, out axis);
+                    // 角度をラジアンから度/秒に変換（実際にはラジアン/秒で計算）
+                    Vector3 angularVelocity = axis * (angle * Mathf.Deg2Rad / Time.deltaTime);
+                    data.angularVelocityValid = true;
+                    data.angularVelocityX = angularVelocity.x;
+                    data.angularVelocityY = angularVelocity.y;
+                    data.angularVelocityZ = angularVelocity.z;
+                }
+                else if (lastHMDRotation == Quaternion.identity)
+                {
+                    // 初回は回転を設定
+                    lastHMDRotation = rotation;
+                }
+
+                lastHMDPosition = position;
+                lastHMDRotation = rotation;
+            }
+            // 方法2: Unity XR InputDevices APIを使用（フォールバック）
+            else
+            {
+                InputDevice hmdDevice = InputDevices.GetDeviceAtXRNode(XRNode.Head);
+                if (hmdDevice.isValid)
+                {
+                    // 位置を取得
+                    if (hmdDevice.TryGetFeatureValue(CommonUsages.devicePosition, out Vector3 position))
+                    {
+                        data.isValid = true;
+                        data.positionX = position.x;
+                        data.positionY = position.y;
+                        data.positionZ = position.z;
+                    }
+
+                    // 回転を取得
+                    if (hmdDevice.TryGetFeatureValue(CommonUsages.deviceRotation, out Quaternion rotation))
+                    {
+                        data.isValid = true;
+                        Vector3 euler = rotation.eulerAngles;
+                        data.rotationX = rotation.x;
+                        data.rotationY = rotation.y;
+                        data.rotationZ = rotation.z;
+                        data.rotationW = rotation.w;
+                        data.eulerX = euler.x;
+                        data.eulerY = euler.y;
+                        data.eulerZ = euler.z;
+                    }
+
+                    // 速度を取得（取得可能な場合）
+                    if (hmdDevice.TryGetFeatureValue(CommonUsages.deviceVelocity, out Vector3 velocity))
+                    {
+                        data.velocityValid = true;
+                        data.velocityX = velocity.x;
+                        data.velocityY = velocity.y;
+                        data.velocityZ = velocity.z;
+                    }
+                    else if (lastHMDPosition != Vector3.zero && Time.deltaTime > 0f && data.isValid)
+                    {
+                        // 速度が取得できない場合は差分から計算
+                        Vector3 calcVelocity = (new Vector3(data.positionX, data.positionY, data.positionZ) - lastHMDPosition) / Time.deltaTime;
+                        data.velocityValid = true;
+                        data.velocityX = calcVelocity.x;
+                        data.velocityY = calcVelocity.y;
+                        data.velocityZ = calcVelocity.z;
+                    }
+
+                    // 角速度を取得（取得可能な場合）
+                    if (hmdDevice.TryGetFeatureValue(CommonUsages.deviceAngularVelocity, out Vector3 angularVelocity))
+                    {
+                        data.angularVelocityValid = true;
+                        data.angularVelocityX = angularVelocity.x;
+                        data.angularVelocityY = angularVelocity.y;
+                        data.angularVelocityZ = angularVelocity.z;
+                    }
+                    else if (lastHMDRotation != Quaternion.identity && Time.deltaTime > 0f && data.isValid)
+                    {
+                        // 角速度が取得できない場合は差分から計算
+                        Quaternion currentRotation = new Quaternion(data.rotationX, data.rotationY, data.rotationZ, data.rotationW);
+                        Quaternion deltaRotation = currentRotation * Quaternion.Inverse(lastHMDRotation);
+                        // Quaternionから角速度ベクトルを計算
+                        float angle;
+                        Vector3 axis;
+                        deltaRotation.ToAngleAxis(out angle, out axis);
+                        // 角度をラジアンから度/秒に変換（実際にはラジアン/秒で計算）
+                        Vector3 calcAngularVelocity = axis * (angle * Mathf.Deg2Rad / Time.deltaTime);
+                        data.angularVelocityValid = true;
+                        data.angularVelocityX = calcAngularVelocity.x;
+                        data.angularVelocityY = calcAngularVelocity.y;
+                        data.angularVelocityZ = calcAngularVelocity.z;
+                    }
+
+                    if (data.isValid)
+                    {
+                        lastHMDPosition = new Vector3(data.positionX, data.positionY, data.positionZ);
+                        lastHMDRotation = new Quaternion(data.rotationX, data.rotationY, data.rotationZ, data.rotationW);
+                    }
+
+                    // 座標系の判定（OpenXRの場合は通常Device座標系）
+                    data.coordinateSystem = "Device";
+                }
+            }
+
+            hmdDataList.Add(data);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[EyeDataRecorder] ✗ HMDデータの取得中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
         }
     }
 
@@ -624,6 +842,90 @@ public class EyeDataRecorder : MonoBehaviour
     }
 
     /// <summary>
+    /// HMDデータをCSVファイルに保存
+    /// </summary>
+    void SaveHMDDataToCSV()
+    {
+        // データがなくても空のCSVファイルを出力する
+        bool hasData = hmdDataList.Count > 0;
+        if (!hasData)
+        {
+            Debug.LogWarning("[EyeDataRecorder] HMDデータがありません（空のCSVファイルを出力します）");
+        }
+
+        try
+        {
+            // フォルダが存在しない場合は再作成
+            if (!Directory.Exists(dataFolderPath))
+            {
+                Directory.CreateDirectory(dataFolderPath);
+                Debug.Log($"[EyeDataRecorder] データフォルダを再作成しました: {dataFolderPath}");
+            }
+
+            string timestamp = SharedPositionDataRecorder.GetSharedTimestamp();
+            if (string.IsNullOrEmpty(timestamp))
+            {
+                timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            }
+
+            string fileName = $"{hmdDataFileName}_{timestamp}.csv";
+            string filePath = Path.Combine(dataFolderPath, fileName).Replace('/', Path.DirectorySeparatorChar);
+
+            Debug.Log($"[EyeDataRecorder] HMDデータの保存を開始します... パス: {filePath}");
+
+            StringBuilder csv = new StringBuilder();
+
+            // ヘッダー行
+            csv.AppendLine("Timestamp,IsValid,CoordinateSystem," +
+                          "PositionX,PositionY,PositionZ," +
+                          "RotationX,RotationY,RotationZ,RotationW," +
+                          "EulerX,EulerY,EulerZ," +
+                          "VelocityValid,VelocityX,VelocityY,VelocityZ," +
+                          "AngularVelocityValid,AngularVelocityX,AngularVelocityY,AngularVelocityZ");
+
+            // データ行（データがない場合は空行のみ）
+            if (hasData)
+            {
+                foreach (var data in hmdDataList)
+                {
+                    csv.AppendLine($"{data.timestamp:F6}," +
+                                  $"{data.isValid}," +
+                                  $"{data.coordinateSystem}," +
+                                  $"{data.positionX:F6},{data.positionY:F6},{data.positionZ:F6}," +
+                                  $"{data.rotationX:F6},{data.rotationY:F6},{data.rotationZ:F6},{data.rotationW:F6}," +
+                                  $"{data.eulerX:F6},{data.eulerY:F6},{data.eulerZ:F6}," +
+                                  $"{data.velocityValid}," +
+                                  $"{(data.velocityValid ? data.velocityX.ToString("F6") : "")}," +
+                                  $"{(data.velocityValid ? data.velocityY.ToString("F6") : "")}," +
+                                  $"{(data.velocityValid ? data.velocityZ.ToString("F6") : "")}," +
+                                  $"{data.angularVelocityValid}," +
+                                  $"{(data.angularVelocityValid ? data.angularVelocityX.ToString("F6") : "")}," +
+                                  $"{(data.angularVelocityValid ? data.angularVelocityY.ToString("F6") : "")}," +
+                                  $"{(data.angularVelocityValid ? data.angularVelocityZ.ToString("F6") : "")}");
+                }
+            }
+
+            File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
+
+            // ファイルが実際に存在するか確認
+            if (File.Exists(filePath))
+            {
+                long fileSize = new FileInfo(filePath).Length;
+                int dataCount = hasData ? hmdDataList.Count : 0;
+                Debug.Log($"[EyeDataRecorder] ✓ HMDデータを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {dataCount}件)");
+            }
+            else
+            {
+                Debug.LogError($"[EyeDataRecorder] ✗ ファイルの保存に失敗しました: {filePath}");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[EyeDataRecorder] ✗ HMDデータの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
+        }
+    }
+
+    /// <summary>
     /// すべてのデータを統合して1つのCSVファイルに保存
     /// </summary>
     void SaveUnifiedDataToCSV()
@@ -658,6 +960,12 @@ public class EyeDataRecorder : MonoBehaviour
                           "LeftDiameterValid,LeftPupilDiameter,LeftPositionValid,LeftPupilPosX,LeftPupilPosY," +
                           "RightDiameterValid,RightPupilDiameter,RightPositionValid,RightPupilPosX,RightPupilPosY," +
                           "AnchorIndex," +
+                          "HMDIsValid,HMDCoordinateSystem," +
+                          "HMDPositionX,HMDPositionY,HMDPositionZ," +
+                          "HMDRotationX,HMDRotationY,HMDRotationZ,HMDRotationW," +
+                          "HMDEulerX,HMDEulerY,HMDEulerZ," +
+                          "HMDVelocityValid,HMDVelocityX,HMDVelocityY,HMDVelocityZ," +
+                          "HMDAngularVelocityValid,HMDAngularVelocityX,HMDAngularVelocityY,HMDAngularVelocityZ," +
                           "HumanMPositionX,HumanMPositionY,HumanMPositionZ," +
                           "BallPositionX,BallPositionY,BallPositionZ," +
                           "Ball2PositionX,Ball2PositionY,Ball2PositionZ," +
@@ -668,6 +976,7 @@ public class EyeDataRecorder : MonoBehaviour
             foreach (var gaze in gazeDataList) allTimestamps.Add(gaze.timestamp);
             foreach (var pupil in pupilDataList) allTimestamps.Add(pupil.timestamp);
             foreach (var anchor in anchorDataList) allTimestamps.Add(anchor.timestamp);
+            foreach (var hmd in hmdDataList) allTimestamps.Add(hmd.timestamp);
 
             // PositionDataとCubeHumanPositionDataのタイムスタンプも取得
             var positionData = SharedPositionDataRecorder.GetAllUnifiedData();
@@ -693,6 +1002,8 @@ public class EyeDataRecorder : MonoBehaviour
                     var pupil = pupilDataList.FirstOrDefault(p => Mathf.Abs(p.timestamp - ts) < 0.001f);
                     // Anchorデータを検索
                     var anchor = anchorDataList.FirstOrDefault(a => Mathf.Abs(a.timestamp - ts) < 0.001f);
+                    // HMDデータを検索
+                    var hmd = hmdDataList.FirstOrDefault(h => Mathf.Abs(h.timestamp - ts) < 0.001f);
                     // Positionデータを検索
                     var posData = positionData.FirstOrDefault(p => Mathf.Abs(p.timestamp - ts) < 0.001f);
                     // Cube-humanデータを検索
@@ -702,6 +1013,7 @@ public class EyeDataRecorder : MonoBehaviour
                     bool hasGaze = Mathf.Abs(gaze.timestamp - ts) < 0.001f;
                     bool hasPupil = Mathf.Abs(pupil.timestamp - ts) < 0.001f;
                     bool hasAnchor = Mathf.Abs(anchor.timestamp - ts) < 0.001f;
+                    bool hasHMD = Mathf.Abs(hmd.timestamp - ts) < 0.001f;
                     bool hasPos = Mathf.Abs(posData.timestamp - ts) < 0.001f;
                     bool hasCube = Mathf.Abs(cubeData.timestamp - ts) < 0.001f;
 
@@ -734,6 +1046,26 @@ public class EyeDataRecorder : MonoBehaviour
                                   $"{(hasPupil ? pupil.rightPupilPosition.x.ToString("F6") : "")}," +
                                   $"{(hasPupil ? pupil.rightPupilPosition.y.ToString("F6") : "")}," +
                                   $"{(hasAnchor ? anchor.anchorIndex.ToString() : "")}," +
+                                  $"{(hasHMD ? hmd.isValid.ToString() : "")}," +
+                                  $"{(hasHMD ? hmd.coordinateSystem : "")}," +
+                                  $"{(hasHMD ? hmd.positionX.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.positionY.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.positionZ.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.rotationX.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.rotationY.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.rotationZ.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.rotationW.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.eulerX.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.eulerY.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.eulerZ.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.velocityValid.ToString() : "")}," +
+                                  $"{(hasHMD && hmd.velocityValid ? hmd.velocityX.ToString("F6") : "")}," +
+                                  $"{(hasHMD && hmd.velocityValid ? hmd.velocityY.ToString("F6") : "")}," +
+                                  $"{(hasHMD && hmd.velocityValid ? hmd.velocityZ.ToString("F6") : "")}," +
+                                  $"{(hasHMD ? hmd.angularVelocityValid.ToString() : "")}," +
+                                  $"{(hasHMD && hmd.angularVelocityValid ? hmd.angularVelocityX.ToString("F6") : "")}," +
+                                  $"{(hasHMD && hmd.angularVelocityValid ? hmd.angularVelocityY.ToString("F6") : "")}," +
+                                  $"{(hasHMD && hmd.angularVelocityValid ? hmd.angularVelocityZ.ToString("F6") : "")}," +
                                   $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.x.ToString("F6") : "")}," +
                                   $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.y.ToString("F6") : "")}," +
                                   $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.z.ToString("F6") : "")}," +
@@ -840,10 +1172,11 @@ public class EyeDataRecorder : MonoBehaviour
             GUI.Label(new Rect(panelX, 100, panelWidth, 30), $"視線データ: {gazeDataList.Count}件");
             GUI.Label(new Rect(panelX, 130, panelWidth, 30), $"瞳孔データ: {pupilDataList.Count}件");
             GUI.Label(new Rect(panelX, 160, panelWidth, 30), $"アンカー: {anchorDataList.Count}件");
-            GUI.Label(new Rect(panelX, 190, panelWidth, 30), $"実際の周波数: {actualFrequency:F1}Hz / {targetRecordingFrequency}Hz");
-            GUI.Label(new Rect(panelX, 220, panelWidth, 30), $"記録時間: {recordingDuration:F2}秒");
-            GUI.Label(new Rect(panelX, 250, panelWidth, 30), $"開始からの経過: {elapsedSinceStart:F2}秒");
-            GUI.Label(new Rect(panelX, 280, panelWidth, 30), "スペースキーでアンカーを打てます");
+            GUI.Label(new Rect(panelX, 190, panelWidth, 30), $"HMDデータ: {hmdDataList.Count}件");
+            GUI.Label(new Rect(panelX, 220, panelWidth, 30), $"実際の周波数: {actualFrequency:F1}Hz / {targetRecordingFrequency}Hz");
+            GUI.Label(new Rect(panelX, 250, panelWidth, 30), $"記録時間: {recordingDuration:F2}秒");
+            GUI.Label(new Rect(panelX, 280, panelWidth, 30), $"開始からの経過: {elapsedSinceStart:F2}秒");
+            GUI.Label(new Rect(panelX, 310, panelWidth, 30), "スペースキーでアンカーを打てます");
 
             // 自動終了するシーンの場合は残り時間を表示
             if (RequiresAutoStop())
@@ -852,7 +1185,7 @@ public class EyeDataRecorder : MonoBehaviour
                 float remainingTime = autoStopDuration - recordingDuration;
                 if (remainingTime > 0f)
                 {
-                    GUI.Label(new Rect(panelX, 310, panelWidth, 30), $"残り時間: {remainingTime:F1}秒");
+                    GUI.Label(new Rect(panelX, 340, panelWidth, 30), $"残り時間: {remainingTime:F1}秒");
                 }
                 else
                 {
