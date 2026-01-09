@@ -6,7 +6,7 @@ using System;
 using System.Linq;
 
 /// <summary>
-/// HumanMとBallの位置データを統合して記録する共有クラス
+/// HumanM、Ball、Ball2の位置データを統合して記録する共有クラス
 /// </summary>
 public static class SharedPositionDataRecorder
 {
@@ -16,6 +16,7 @@ public static class SharedPositionDataRecorder
         public float timestamp;
         public Vector3? humanMPosition;
         public Vector3? ballPosition;
+        public Vector3? ball2Position;
     }
 
     private static List<UnifiedPositionData> _unifiedDataList = new List<UnifiedPositionData>();
@@ -89,7 +90,8 @@ public static class SharedPositionDataRecorder
                 {
                     timestamp = timestamp,
                     humanMPosition = position,
-                    ballPosition = null
+                    ballPosition = null,
+                    ball2Position = null
                 });
             }
         }
@@ -118,7 +120,38 @@ public static class SharedPositionDataRecorder
                 {
                     timestamp = timestamp,
                     humanMPosition = null,
-                    ballPosition = position
+                    ballPosition = position,
+                    ball2Position = null
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ball2の位置データを追加
+    /// </summary>
+    public static void AddBall2Position(float timestamp, Vector3 position)
+    {
+        lock (_dataLock)
+        {
+            // 同じタイムスタンプのデータを探す
+            int index = _unifiedDataList.FindIndex(d => Mathf.Abs(d.timestamp - timestamp) < 0.0001f);
+            if (index >= 0)
+            {
+                // 既存のデータを更新
+                var existing = _unifiedDataList[index];
+                existing.ball2Position = position;
+                _unifiedDataList[index] = existing;
+            }
+            else
+            {
+                // 新しいデータを追加
+                _unifiedDataList.Add(new UnifiedPositionData
+                {
+                    timestamp = timestamp,
+                    humanMPosition = null,
+                    ballPosition = null,
+                    ball2Position = position
                 });
             }
         }
@@ -140,19 +173,31 @@ public static class SharedPositionDataRecorder
     }
 
     /// <summary>
+    /// すべての統合データを取得
+    /// </summary>
+    public static List<UnifiedPositionData> GetAllUnifiedData()
+    {
+        lock (_dataLock)
+        {
+            return new List<UnifiedPositionData>(_unifiedDataList);
+        }
+    }
+
+    /// <summary>
     /// 統合データをCSVファイルに保存
     /// </summary>
     public static void SaveToCSV(string dataFolderPath, bool enableDebugLogs = false)
     {
         lock (_dataLock)
         {
-            if (_unifiedDataList.Count == 0)
+            // データがなくても空のCSVファイルを出力する
+            bool hasData = _unifiedDataList.Count > 0;
+            if (!hasData)
             {
                 if (enableDebugLogs)
                 {
-                    Debug.LogWarning("[SharedPositionDataRecorder] 保存するデータがありません");
+                    Debug.LogWarning("[SharedPositionDataRecorder] 保存するデータがありません（空のCSVファイルを出力します）");
                 }
-                return;
             }
 
             try
@@ -176,11 +221,11 @@ public static class SharedPositionDataRecorder
                     Debug.Log($"[SharedPositionDataRecorder] 統合座標データの保存を開始します... パス: {filePath}");
                 }
 
-                // タイムスタンプでソート
-                var sortedData = _unifiedDataList.OrderBy(d => d.timestamp).ToList();
+                // タイムスタンプでソート（データがある場合のみ）
+                var sortedData = hasData ? _unifiedDataList.OrderBy(d => d.timestamp).ToList() : new List<UnifiedPositionData>();
 
-                // データを90Hzで補間
-                var interpolatedData = InterpolateData(sortedData, 90);
+                // データを90Hzで補間（データがある場合のみ）
+                var interpolatedData = hasData ? InterpolateData(sortedData, 90) : new List<UnifiedPositionData>();
 
                 if (enableDebugLogs)
                 {
@@ -196,19 +241,25 @@ public static class SharedPositionDataRecorder
                 StringBuilder csv = new StringBuilder();
 
                 // ヘッダー行
-                csv.AppendLine("Timestamp,HumanMPositionX,HumanMPositionY,HumanMPositionZ,BallPositionX,BallPositionY,BallPositionZ");
+                csv.AppendLine("Timestamp,HumanMPositionX,HumanMPositionY,HumanMPositionZ,BallPositionX,BallPositionY,BallPositionZ,Ball2PositionX,Ball2PositionY,Ball2PositionZ");
 
-                // データ行
-                foreach (var data in interpolatedData)
+                // データ行（データがない場合は空行のみ）
+                if (hasData)
                 {
-                    string humanMX = data.humanMPosition.HasValue ? data.humanMPosition.Value.x.ToString("F6") : "";
-                    string humanMY = data.humanMPosition.HasValue ? data.humanMPosition.Value.y.ToString("F6") : "";
-                    string humanMZ = data.humanMPosition.HasValue ? data.humanMPosition.Value.z.ToString("F6") : "";
-                    string ballX = data.ballPosition.HasValue ? data.ballPosition.Value.x.ToString("F6") : "";
-                    string ballY = data.ballPosition.HasValue ? data.ballPosition.Value.y.ToString("F6") : "";
-                    string ballZ = data.ballPosition.HasValue ? data.ballPosition.Value.z.ToString("F6") : "";
+                    foreach (var data in interpolatedData)
+                    {
+                        string humanMX = data.humanMPosition.HasValue ? data.humanMPosition.Value.x.ToString("F6") : "";
+                        string humanMY = data.humanMPosition.HasValue ? data.humanMPosition.Value.y.ToString("F6") : "";
+                        string humanMZ = data.humanMPosition.HasValue ? data.humanMPosition.Value.z.ToString("F6") : "";
+                        string ballX = data.ballPosition.HasValue ? data.ballPosition.Value.x.ToString("F6") : "";
+                        string ballY = data.ballPosition.HasValue ? data.ballPosition.Value.y.ToString("F6") : "";
+                        string ballZ = data.ballPosition.HasValue ? data.ballPosition.Value.z.ToString("F6") : "";
+                        string ball2X = data.ball2Position.HasValue ? data.ball2Position.Value.x.ToString("F6") : "";
+                        string ball2Y = data.ball2Position.HasValue ? data.ball2Position.Value.y.ToString("F6") : "";
+                        string ball2Z = data.ball2Position.HasValue ? data.ball2Position.Value.z.ToString("F6") : "";
 
-                    csv.AppendLine($"{data.timestamp:F6},{humanMX},{humanMY},{humanMZ},{ballX},{ballY},{ballZ}");
+                        csv.AppendLine($"{data.timestamp:F6},{humanMX},{humanMY},{humanMZ},{ballX},{ballY},{ballZ},{ball2X},{ball2Y},{ball2Z}");
+                    }
                 }
 
                 File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
@@ -319,7 +370,8 @@ public static class SharedPositionDataRecorder
                     {
                         timestamp = currentTime,
                         humanMPosition = InterpolateVector3(current.humanMPosition, next.humanMPosition, t),
-                        ballPosition = InterpolateVector3(current.ballPosition, next.ballPosition, t)
+                        ballPosition = InterpolateVector3(current.ballPosition, next.ballPosition, t),
+                        ball2Position = InterpolateVector3(current.ball2Position, next.ball2Position, t)
                     };
                 }
                 else
@@ -331,7 +383,15 @@ public static class SharedPositionDataRecorder
             else
             {
                 interpolatedPoint = originalData[originalData.Count - 1];
-                interpolatedPoint.timestamp = currentTime;
+                // timestampのみ更新（他の値はそのまま）
+                var lastData = originalData[originalData.Count - 1];
+                interpolatedPoint = new UnifiedPositionData
+                {
+                    timestamp = currentTime,
+                    humanMPosition = lastData.humanMPosition,
+                    ballPosition = lastData.ballPosition,
+                    ball2Position = lastData.ball2Position
+                };
             }
 
             interpolated.Add(interpolatedPoint);

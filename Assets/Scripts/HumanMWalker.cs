@@ -109,12 +109,28 @@ public class HumanMWalker : MonoBehaviour
 
     private float _recordingStartTime = -1f;
     private bool _isRecording = false;
-    private const float RECORDING_DURATION = 60.0f; // 1分間記録
+    private const float RECORDING_DURATION = 180.0f; // 3分間記録
     [Range(30, 120)]
     public int targetRecordingFrequency = 20; // 目標記録周波数（Hz）- 元のCSVと同じ20Hz
     private float _recordInterval;
     private float _nextRecordTime; // 次の記録時刻
     private string _dataFolderPath;
+
+    // Cube-human専用の座標記録用
+    private List<CubeHumanPositionData> _cubeHumanPositionList = new List<CubeHumanPositionData>();
+    private bool _isCubeHumanRecording = false;
+    private float _cubeHumanRecordingStartTime = -1f;
+    private float _cubeHumanNextRecordTime = 0f; // Cube-human用の次の記録時刻
+
+    // Cube-human座標データ構造
+    [System.Serializable]
+    public struct CubeHumanPositionData
+    {
+        public float timestamp; // 記録開始からの相対時間（秒）
+        public float positionX;
+        public float positionY;
+        public float positionZ;
+    }
 
     private void Start()
     {
@@ -144,6 +160,19 @@ public class HumanMWalker : MonoBehaviour
         _recordingStartTime = -1f;
         // 記録間隔を計算（秒）
         _recordInterval = 1.0f / targetRecordingFrequency;
+
+        // Cube-humanの場合は自動的に座標記録を開始
+        if (gameObject.name == "Cube-human")
+        {
+            _cubeHumanPositionList.Clear();
+            _isCubeHumanRecording = true;
+            _cubeHumanRecordingStartTime = Time.time;
+            _cubeHumanNextRecordTime = Time.time + _recordInterval; // 最初の記録時刻を設定
+            if (showDebugInfo)
+            {
+                Debug.Log($"[HumanMWalker] Cube-humanの座標記録を開始しました（{targetRecordingFrequency}Hz）");
+            }
+        }
 
         if (showDebugInfo)
         {
@@ -395,12 +424,27 @@ public class HumanMWalker : MonoBehaviour
             }
         }
 
-        // 座標記録（エンターキー押下から1分間、指定された周波数でデータを収集）
+        // 座標記録（エンターキー押下から3分間、指定された周波数でデータを収集）
         if (_isRecording && enablePositionRecording && Time.time >= _nextRecordTime)
         {
             RecordPosition();
             _nextRecordTime = Time.time + _recordInterval;
             CheckRecordingDuration();
+        }
+
+        // Cube-humanの座標記録（シーン開始時から自動記録）
+        if (_isCubeHumanRecording && enablePositionRecording)
+        {
+            if (_cubeHumanNextRecordTime == 0f)
+            {
+                _cubeHumanNextRecordTime = Time.time + _recordInterval;
+            }
+
+            if (Time.time >= _cubeHumanNextRecordTime)
+            {
+                RecordCubeHumanPosition();
+                _cubeHumanNextRecordTime = Time.time + _recordInterval;
+            }
         }
     }
 
@@ -911,7 +955,131 @@ public class HumanMWalker : MonoBehaviour
     }
 
     /// <summary>
-    /// テレポートシーケンス: 10-55秒のランダム時間後にテレポート → 目標位置まで歩行 → 元の位置にテレポート → 停止
+    /// Cube-humanの現在の座標を記録
+    /// </summary>
+    private void RecordCubeHumanPosition()
+    {
+        if (_cubeHumanRecordingStartTime < 0f) return;
+
+        float timestamp = Time.time - _cubeHumanRecordingStartTime;
+        Vector3 pos = transform.position;
+
+        CubeHumanPositionData data = new CubeHumanPositionData
+        {
+            timestamp = timestamp,
+            positionX = pos.x,
+            positionY = pos.y,
+            positionZ = pos.z
+        };
+
+        _cubeHumanPositionList.Add(data);
+    }
+
+
+    /// <summary>
+    /// Cube-humanの座標データをCSVファイルに保存
+    /// </summary>
+    private void SaveCubeHumanPositionToCSV()
+    {
+        if (_cubeHumanPositionList.Count == 0)
+        {
+            if (showDebugInfo)
+            {
+                Debug.LogWarning("[HumanMWalker] Cube-humanの座標データがありません");
+            }
+            return;
+        }
+
+        try
+        {
+            // フォルダが存在しない場合は再作成
+            if (!Directory.Exists(_dataFolderPath))
+            {
+                Directory.CreateDirectory(_dataFolderPath);
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[HumanMWalker] データフォルダを再作成しました: {_dataFolderPath}");
+                }
+            }
+
+            // 共有タイムスタンプを取得（なければ新規作成）
+            string timestamp = SharedPositionDataRecorder.GetSharedTimestamp();
+            if (string.IsNullOrEmpty(timestamp))
+            {
+                timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            }
+
+            string fileName = $"CubeHumanPositionData_{timestamp}.csv";
+            string filePath = Path.Combine(_dataFolderPath, fileName).Replace('/', Path.DirectorySeparatorChar);
+
+            if (showDebugInfo)
+            {
+                Debug.Log($"[HumanMWalker] Cube-human座標データの保存を開始します... パス: {filePath}");
+            }
+
+            StringBuilder csv = new StringBuilder();
+
+            // ヘッダー行
+            csv.AppendLine("Timestamp,PositionX,PositionY,PositionZ");
+
+            // データ行
+            foreach (var data in _cubeHumanPositionList)
+            {
+                csv.AppendLine($"{data.timestamp:F6},{data.positionX:F6},{data.positionY:F6},{data.positionZ:F6}");
+            }
+
+            File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
+
+            // ファイルが実際に存在するか確認
+            if (File.Exists(filePath))
+            {
+                long fileSize = new FileInfo(filePath).Length;
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[HumanMWalker] ✓ Cube-human座標データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {_cubeHumanPositionList.Count}件)");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[HumanMWalker] ✗ ファイルの保存に失敗しました: {filePath}");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[HumanMWalker] ✗ Cube-human座標データの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// Cube-humanの位置データを取得（外部からアクセス可能）
+    /// </summary>
+    public List<CubeHumanPositionData> GetCubeHumanPositionData()
+    {
+        if (gameObject.name == "Cube-human")
+        {
+            return new List<CubeHumanPositionData>(_cubeHumanPositionList);
+        }
+        return new List<CubeHumanPositionData>();
+    }
+
+    /// <summary>
+    /// オブジェクトが削除される際にCSVに保存
+    /// </summary>
+    private void OnDestroy()
+    {
+        // Cube-humanの場合は最終データを保存
+        if (gameObject.name == "Cube-human" && _isCubeHumanRecording && _cubeHumanPositionList.Count > 0)
+        {
+            SaveCubeHumanPositionToCSV();
+            if (showDebugInfo)
+            {
+                Debug.Log("[HumanMWalker] Cube-humanオブジェクト削除時に最終データを保存しました");
+            }
+        }
+    }
+
+    /// <summary>
+    /// テレポートシーケンス: 50-60秒と120-150秒のランダム時間後に各1回ずつテレポート → 目標位置まで歩行 → 元の位置にテレポート → 停止
     /// </summary>
     private IEnumerator TeleportSequence()
     {
@@ -933,15 +1101,46 @@ public class HumanMWalker : MonoBehaviour
         _isMoving = false;
         UpdateAnimation(false, 0f);
 
-        // 10秒から55秒の間でランダムに待機
-        float randomDelay = UnityEngine.Random.Range(10f, 55f);
-        yield return new WaitForSeconds(randomDelay);
+        // 1回目: 50秒から60秒の間でランダムに待機
+        float firstDelay = UnityEngine.Random.Range(50f, 60f);
+        yield return new WaitForSeconds(firstDelay);
 
         if (showDebugInfo)
         {
-            Debug.Log($"[HumanMWalker] {randomDelay:F2}秒経過 - テレポート位置へ移動: {teleportPosition}");
+            Debug.Log($"[HumanMWalker] 1回目: {firstDelay:F2}秒経過 - テレポート位置へ移動: {teleportPosition}");
         }
 
+        // 1回目のテレポートと歩行を実行
+        yield return StartCoroutine(ExecuteTeleportAndWalk());
+
+        // 2回目までの待機時間を計算（120秒から150秒の間でランダム）
+        float secondDelay = UnityEngine.Random.Range(120f, 150f);
+        // 1回目の待機時間を引いて、残りの待機時間を計算
+        float remainingDelay = secondDelay - firstDelay;
+        if (remainingDelay > 0f)
+        {
+            yield return new WaitForSeconds(remainingDelay);
+        }
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] 2回目: {secondDelay:F2}秒経過 - テレポート位置へ移動: {teleportPosition}");
+        }
+
+        // 2回目のテレポートと歩行を実行
+        yield return StartCoroutine(ExecuteTeleportAndWalk());
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] テレポートシーケンス完了 - すべての出現が終了しました");
+        }
+    }
+
+    /// <summary>
+    /// テレポートと歩行を実行するコルーチン
+    /// </summary>
+    private IEnumerator ExecuteTeleportAndWalk()
+    {
         // テレポート位置に移動（Y座標を0.978に統一）
         Vector3 teleportPos = teleportPosition;
         teleportPos.y = 0.978f;
@@ -999,7 +1198,7 @@ public class HumanMWalker : MonoBehaviour
 
         if (showDebugInfo)
         {
-            Debug.Log($"[HumanMWalker] テレポートシーケンス完了 - 歩行を停止しました");
+            Debug.Log($"[HumanMWalker] テレポートと歩行が完了しました");
         }
     }
 

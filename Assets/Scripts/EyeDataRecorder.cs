@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System;
+using System.Linq;
 
 public class EyeDataRecorder : MonoBehaviour
 {
@@ -32,8 +33,8 @@ public class EyeDataRecorder : MonoBehaviour
     private float measurementStartTime = -1f;
     // 自動終了コルーチン
     private Coroutine autoStopCoroutine = null;
-    private const float AUTO_STOP_DURATION_SAMPLE_SCENE = 60.0f; // SampleScene: 60秒後に自動終了
-    private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 60.0f; // SampleScene1/2: 60秒後に自動終了
+    private const float AUTO_STOP_DURATION_SAMPLE_SCENE = 180.0f; // SampleScene: 180秒後に自動終了
+    private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 180.0f; // SampleScene1/2: 180秒後に自動終了
 
     // 視線データ構造
     [System.Serializable]
@@ -228,10 +229,13 @@ public class EyeDataRecorder : MonoBehaviour
             autoStopCoroutine = null;
         }
 
-        // CSVファイルに保存
+        // CSVファイルに保存（個別ファイル）
         SaveGazeDataToCSV();
         SavePupilDataToCSV();
         SaveAnchorDataToCSV(); // アンカーデータも保存
+
+        // 統合CSVファイルに保存
+        SaveUnifiedDataToCSV();
 
         float recordingDuration = Time.time - recordingStartTime;
         float actualFrequency = gazeDataList.Count / recordingDuration;
@@ -412,10 +416,11 @@ public class EyeDataRecorder : MonoBehaviour
 
     void SaveGazeDataToCSV()
     {
-        if (gazeDataList.Count == 0)
+        // データがなくても空のCSVファイルを出力する
+        bool hasData = gazeDataList.Count > 0;
+        if (!hasData)
         {
-            Debug.LogWarning("[EyeDataRecorder] 視線データがありません");
-            return;
+            Debug.LogWarning("[EyeDataRecorder] 視線データがありません（空のCSVファイルを出力します）");
         }
 
         try
@@ -438,16 +443,19 @@ public class EyeDataRecorder : MonoBehaviour
             // ヘッダー行
             csv.AppendLine("Timestamp,LeftGazeValid,LeftGazePosX,LeftGazePosY,LeftGazePosZ,LeftGazeRotX,LeftGazeRotY,LeftGazeRotZ,LeftGazeRotW,RightGazeValid,RightGazePosX,RightGazePosY,RightGazePosZ,RightGazeRotX,RightGazeRotY,RightGazeRotZ,RightGazeRotW");
 
-            // データ行
-            foreach (var data in gazeDataList)
+            // データ行（データがない場合は空行のみ）
+            if (hasData)
             {
-                csv.AppendLine($"{data.timestamp:F3}," +
-                              $"{data.leftGazeValid}," +
-                              $"{data.leftGazePosition.x:F6},{data.leftGazePosition.y:F6},{data.leftGazePosition.z:F6}," +
-                              $"{data.leftGazeRotation.x:F6},{data.leftGazeRotation.y:F6},{data.leftGazeRotation.z:F6},{data.leftGazeRotation.w:F6}," +
-                              $"{data.rightGazeValid}," +
-                              $"{data.rightGazePosition.x:F6},{data.rightGazePosition.y:F6},{data.rightGazePosition.z:F6}," +
-                              $"{data.rightGazeRotation.x:F6},{data.rightGazeRotation.y:F6},{data.rightGazeRotation.z:F6},{data.rightGazeRotation.w:F6}");
+                foreach (var data in gazeDataList)
+                {
+                    csv.AppendLine($"{data.timestamp:F3}," +
+                                  $"{data.leftGazeValid}," +
+                                  $"{data.leftGazePosition.x:F6},{data.leftGazePosition.y:F6},{data.leftGazePosition.z:F6}," +
+                                  $"{data.leftGazeRotation.x:F6},{data.leftGazeRotation.y:F6},{data.leftGazeRotation.z:F6},{data.leftGazeRotation.w:F6}," +
+                                  $"{data.rightGazeValid}," +
+                                  $"{data.rightGazePosition.x:F6},{data.rightGazePosition.y:F6},{data.rightGazePosition.z:F6}," +
+                                  $"{data.rightGazeRotation.x:F6},{data.rightGazeRotation.y:F6},{data.rightGazeRotation.z:F6},{data.rightGazeRotation.w:F6}");
+                }
             }
 
             File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
@@ -456,7 +464,8 @@ public class EyeDataRecorder : MonoBehaviour
             if (File.Exists(filePath))
             {
                 long fileSize = new FileInfo(filePath).Length;
-                Debug.Log($"[EyeDataRecorder] ✓ 視線データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {gazeDataList.Count}件)");
+                int dataCount = hasData ? gazeDataList.Count : 0;
+                Debug.Log($"[EyeDataRecorder] ✓ 視線データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {dataCount}件)");
             }
             else
             {
@@ -471,10 +480,11 @@ public class EyeDataRecorder : MonoBehaviour
 
     void SavePupilDataToCSV()
     {
-        if (pupilDataList.Count == 0)
+        // データがなくても空のCSVファイルを出力する
+        bool hasData = pupilDataList.Count > 0;
+        if (!hasData)
         {
-            Debug.LogWarning("[EyeDataRecorder] 瞳孔データがありません");
-            return;
+            Debug.LogWarning("[EyeDataRecorder] 瞳孔データがありません（空のCSVファイルを出力します）");
         }
 
         try
@@ -497,18 +507,21 @@ public class EyeDataRecorder : MonoBehaviour
             // ヘッダー行
             csv.AppendLine("Timestamp,LeftDiameterValid,LeftPupilDiameter,LeftPositionValid,LeftPupilPosX,LeftPupilPosY,RightDiameterValid,RightPupilDiameter,RightPositionValid,RightPupilPosX,RightPupilPosY");
 
-            // データ行
-            foreach (var data in pupilDataList)
+            // データ行（データがない場合は空行のみ）
+            if (hasData)
             {
-                csv.AppendLine($"{data.timestamp:F3}," +
-                              $"{data.leftDiameterValid}," +
-                              $"{data.leftPupilDiameter:F3}," +
-                              $"{data.leftPositionValid}," +
-                              $"{data.leftPupilPosition.x:F6},{data.leftPupilPosition.y:F6}," +
-                              $"{data.rightDiameterValid}," +
-                              $"{data.rightPupilDiameter:F3}," +
-                              $"{data.rightPositionValid}," +
-                              $"{data.rightPupilPosition.x:F6},{data.rightPupilPosition.y:F6}");
+                foreach (var data in pupilDataList)
+                {
+                    csv.AppendLine($"{data.timestamp:F3}," +
+                                  $"{data.leftDiameterValid}," +
+                                  $"{data.leftPupilDiameter:F3}," +
+                                  $"{data.leftPositionValid}," +
+                                  $"{data.leftPupilPosition.x:F6},{data.leftPupilPosition.y:F6}," +
+                                  $"{data.rightDiameterValid}," +
+                                  $"{data.rightPupilDiameter:F3}," +
+                                  $"{data.rightPositionValid}," +
+                                  $"{data.rightPupilPosition.x:F6},{data.rightPupilPosition.y:F6}");
+                }
             }
 
             File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
@@ -517,7 +530,8 @@ public class EyeDataRecorder : MonoBehaviour
             if (File.Exists(filePath))
             {
                 long fileSize = new FileInfo(filePath).Length;
-                Debug.Log($"[EyeDataRecorder] ✓ 瞳孔データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {pupilDataList.Count}件)");
+                int dataCount = hasData ? pupilDataList.Count : 0;
+                Debug.Log($"[EyeDataRecorder] ✓ 瞳孔データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {dataCount}件)");
             }
             else
             {
@@ -553,10 +567,11 @@ public class EyeDataRecorder : MonoBehaviour
     /// </summary>
     void SaveAnchorDataToCSV()
     {
-        if (anchorDataList.Count == 0)
+        // データがなくても空のCSVファイルを出力する
+        bool hasData = anchorDataList.Count > 0;
+        if (!hasData)
         {
-            Debug.LogWarning("[EyeDataRecorder] アンカーデータがありません");
-            return;
+            Debug.LogWarning("[EyeDataRecorder] アンカーデータがありません（空のCSVファイルを出力します）");
         }
 
         try
@@ -579,10 +594,13 @@ public class EyeDataRecorder : MonoBehaviour
             // ヘッダー行
             csv.AppendLine("AnchorIndex,Timestamp");
 
-            // データ行
-            foreach (var anchor in anchorDataList)
+            // データ行（データがない場合は空行のみ）
+            if (hasData)
             {
-                csv.AppendLine($"{anchor.anchorIndex},{anchor.timestamp:F3}");
+                foreach (var anchor in anchorDataList)
+                {
+                    csv.AppendLine($"{anchor.anchorIndex},{anchor.timestamp:F3}");
+                }
             }
 
             File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
@@ -591,7 +609,8 @@ public class EyeDataRecorder : MonoBehaviour
             if (File.Exists(filePath))
             {
                 long fileSize = new FileInfo(filePath).Length;
-                Debug.Log($"[EyeDataRecorder] ✓ アンカーデータを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {anchorDataList.Count}件)");
+                int dataCount = hasData ? anchorDataList.Count : 0;
+                Debug.Log($"[EyeDataRecorder] ✓ アンカーデータを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {dataCount}件)");
             }
             else
             {
@@ -602,6 +621,190 @@ public class EyeDataRecorder : MonoBehaviour
         {
             Debug.LogError($"[EyeDataRecorder] ✗ アンカーデータの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
         }
+    }
+
+    /// <summary>
+    /// すべてのデータを統合して1つのCSVファイルに保存
+    /// </summary>
+    void SaveUnifiedDataToCSV()
+    {
+        try
+        {
+            // フォルダが存在しない場合は作成
+            if (!Directory.Exists(dataFolderPath))
+            {
+                Directory.CreateDirectory(dataFolderPath);
+                Debug.Log($"[EyeDataRecorder] データフォルダを作成しました: {dataFolderPath}");
+            }
+
+            // 共有タイムスタンプを取得
+            string timestamp = SharedPositionDataRecorder.GetSharedTimestamp();
+            if (string.IsNullOrEmpty(timestamp))
+            {
+                timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            }
+
+            string fileName = $"UnifiedData_{timestamp}.csv";
+            string filePath = Path.Combine(dataFolderPath, fileName).Replace('/', Path.DirectorySeparatorChar);
+
+            Debug.Log($"[EyeDataRecorder] 統合データの保存を開始します... パス: {filePath}");
+
+            StringBuilder csv = new StringBuilder();
+
+            // ヘッダー行（すべてのカラムを含む）
+            csv.AppendLine("Timestamp," +
+                          "LeftGazeValid,LeftGazePosX,LeftGazePosY,LeftGazePosZ,LeftGazeRotX,LeftGazeRotY,LeftGazeRotZ,LeftGazeRotW," +
+                          "RightGazeValid,RightGazePosX,RightGazePosY,RightGazePosZ,RightGazeRotX,RightGazeRotY,RightGazeRotZ,RightGazeRotW," +
+                          "LeftDiameterValid,LeftPupilDiameter,LeftPositionValid,LeftPupilPosX,LeftPupilPosY," +
+                          "RightDiameterValid,RightPupilDiameter,RightPositionValid,RightPupilPosX,RightPupilPosY," +
+                          "AnchorIndex," +
+                          "HumanMPositionX,HumanMPositionY,HumanMPositionZ," +
+                          "BallPositionX,BallPositionY,BallPositionZ," +
+                          "Ball2PositionX,Ball2PositionY,Ball2PositionZ," +
+                          "CubeHumanPositionX,CubeHumanPositionY,CubeHumanPositionZ");
+
+            // すべてのタイムスタンプを収集してソート
+            var allTimestamps = new SortedSet<float>();
+            foreach (var gaze in gazeDataList) allTimestamps.Add(gaze.timestamp);
+            foreach (var pupil in pupilDataList) allTimestamps.Add(pupil.timestamp);
+            foreach (var anchor in anchorDataList) allTimestamps.Add(anchor.timestamp);
+
+            // PositionDataとCubeHumanPositionDataのタイムスタンプも取得
+            var positionData = SharedPositionDataRecorder.GetAllUnifiedData();
+            foreach (var pos in positionData) allTimestamps.Add(pos.timestamp);
+
+            // HumanMWalkerからCube-humanデータを取得
+            var cubeHumanData = GetCubeHumanData();
+            foreach (var cube in cubeHumanData) allTimestamps.Add(cube.timestamp);
+
+            // 各タイムスタンプごとにデータ行を生成（データがない場合はヘッダーのみ）
+            if (allTimestamps.Count == 0)
+            {
+                // データが一切ない場合は、ヘッダーのみのCSVファイルを保存
+                Debug.LogWarning("[EyeDataRecorder] すべてのデータタイプが空です（ヘッダーのみのCSVファイルを出力します）");
+            }
+            else
+            {
+                foreach (float ts in allTimestamps)
+                {
+                    // Gazeデータを検索
+                    var gaze = gazeDataList.FirstOrDefault(g => Mathf.Abs(g.timestamp - ts) < 0.001f);
+                    // Pupilデータを検索
+                    var pupil = pupilDataList.FirstOrDefault(p => Mathf.Abs(p.timestamp - ts) < 0.001f);
+                    // Anchorデータを検索
+                    var anchor = anchorDataList.FirstOrDefault(a => Mathf.Abs(a.timestamp - ts) < 0.001f);
+                    // Positionデータを検索
+                    var posData = positionData.FirstOrDefault(p => Mathf.Abs(p.timestamp - ts) < 0.001f);
+                    // Cube-humanデータを検索
+                    var cubeData = cubeHumanData.FirstOrDefault(c => Mathf.Abs(c.timestamp - ts) < 0.001f);
+
+                    // データが存在するかチェック（タイムスタンプが一致する場合）
+                    bool hasGaze = Mathf.Abs(gaze.timestamp - ts) < 0.001f;
+                    bool hasPupil = Mathf.Abs(pupil.timestamp - ts) < 0.001f;
+                    bool hasAnchor = Mathf.Abs(anchor.timestamp - ts) < 0.001f;
+                    bool hasPos = Mathf.Abs(posData.timestamp - ts) < 0.001f;
+                    bool hasCube = Mathf.Abs(cubeData.timestamp - ts) < 0.001f;
+
+                    // データ行を生成
+                    csv.AppendLine($"{ts:F6}," +
+                                  $"{(hasGaze ? gaze.leftGazeValid.ToString() : "")}," +
+                                  $"{(hasGaze ? gaze.leftGazePosition.x.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.leftGazePosition.y.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.leftGazePosition.z.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.leftGazeRotation.x.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.leftGazeRotation.y.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.leftGazeRotation.z.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.leftGazeRotation.w.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazeValid.ToString() : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazePosition.x.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazePosition.y.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazePosition.z.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazeRotation.x.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazeRotation.y.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazeRotation.z.ToString("F6") : "")}," +
+                                  $"{(hasGaze ? gaze.rightGazeRotation.w.ToString("F6") : "")}," +
+                                  $"{(hasPupil ? pupil.leftDiameterValid.ToString() : "")}," +
+                                  $"{(hasPupil ? pupil.leftPupilDiameter.ToString("F3") : "")}," +
+                                  $"{(hasPupil ? pupil.leftPositionValid.ToString() : "")}," +
+                                  $"{(hasPupil ? pupil.leftPupilPosition.x.ToString("F6") : "")}," +
+                                  $"{(hasPupil ? pupil.leftPupilPosition.y.ToString("F6") : "")}," +
+                                  $"{(hasPupil ? pupil.rightDiameterValid.ToString() : "")}," +
+                                  $"{(hasPupil ? pupil.rightPupilDiameter.ToString("F3") : "")}," +
+                                  $"{(hasPupil ? pupil.rightPositionValid.ToString() : "")}," +
+                                  $"{(hasPupil ? pupil.rightPupilPosition.x.ToString("F6") : "")}," +
+                                  $"{(hasPupil ? pupil.rightPupilPosition.y.ToString("F6") : "")}," +
+                                  $"{(hasAnchor ? anchor.anchorIndex.ToString() : "")}," +
+                                  $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.x.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.y.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.z.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.ballPosition.HasValue ? posData.ballPosition.Value.x.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.ballPosition.HasValue ? posData.ballPosition.Value.y.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.ballPosition.HasValue ? posData.ballPosition.Value.z.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.ball2Position.HasValue ? posData.ball2Position.Value.x.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.ball2Position.HasValue ? posData.ball2Position.Value.y.ToString("F6") : "")}," +
+                                  $"{(hasPos && posData.ball2Position.HasValue ? posData.ball2Position.Value.z.ToString("F6") : "")}," +
+                                  $"{(hasCube ? cubeData.positionX.ToString("F6") : "")}," +
+                                  $"{(hasCube ? cubeData.positionY.ToString("F6") : "")}," +
+                                  $"{(hasCube ? cubeData.positionZ.ToString("F6") : "")}");
+                }
+            }
+
+            File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
+
+            // ファイルが実際に存在するか確認
+            if (File.Exists(filePath))
+            {
+                long fileSize = new FileInfo(filePath).Length;
+                Debug.Log($"[EyeDataRecorder] ✓ 統合データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {allTimestamps.Count}件)");
+            }
+            else
+            {
+                Debug.LogError($"[EyeDataRecorder] ✗ 統合データの保存に失敗しました: {filePath}");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[EyeDataRecorder] ✗ 統合データの保存中にエラーが発生しました: {e.Message}\nスタックトレース: {e.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// Cube-humanデータを取得（HumanMWalkerから）
+    /// </summary>
+    private List<CubeHumanPositionData> GetCubeHumanData()
+    {
+        var result = new List<CubeHumanPositionData>();
+        var cubeHuman = GameObject.Find("Cube-human");
+        if (cubeHuman != null)
+        {
+            var walker = cubeHuman.GetComponent<HumanMWalker>();
+            if (walker != null)
+            {
+                var humanData = walker.GetCubeHumanPositionData();
+                // HumanMWalker.CubeHumanPositionDataからEyeDataRecorder.CubeHumanPositionDataに変換
+                foreach (var hd in humanData)
+                {
+                    result.Add(new CubeHumanPositionData
+                    {
+                        timestamp = hd.timestamp,
+                        positionX = hd.positionX,
+                        positionY = hd.positionY,
+                        positionZ = hd.positionZ
+                    });
+                }
+            }
+        }
+        return result;
+    }
+
+    // Cube-humanデータ構造（HumanMWalkerと同じ）
+    [System.Serializable]
+    public struct CubeHumanPositionData
+    {
+        public float timestamp;
+        public float positionX;
+        public float positionY;
+        public float positionZ;
     }
 
     void OnGUI()

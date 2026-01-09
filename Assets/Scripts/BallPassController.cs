@@ -60,7 +60,7 @@ public class BallPassController : MonoBehaviour
 	[Range(1f, 30f)]
 	public float targetSpeed = 7.0f;
 	[Tooltip("速度プリセット")]
-	public SpeedPreset speedPreset = SpeedPreset.Fast;
+	public SpeedPreset speedPreset = SpeedPreset.Normal;
 	[Tooltip("キーボードで速度調整を有効にする")]
 	public bool enableKeyboardControl = true;
 	[Tooltip("キーボード速度調整の刻み値")]
@@ -127,7 +127,7 @@ public class BallPassController : MonoBehaviour
 
 	private float _recordingStartTime = -1f;
 	private bool _isRecording = false;
-	private const float RECORDING_DURATION = 60.0f; // 1分間記録
+	private const float RECORDING_DURATION = 180.0f; // 3分間記録
 	[Range(10, 120)]
 	public int targetRecordingFrequency = 20; // 目標記録周波数（Hz）- 元のCSVと同じ20Hz
 	private float _recordInterval;
@@ -1077,7 +1077,22 @@ public class BallPassController : MonoBehaviour
 		if (_recordingStartTime < 0f || _ball == null) return;
 
 		float timestamp = Time.time - _recordingStartTime;
-		SharedPositionDataRecorder.AddBallPosition(timestamp, _ball.position);
+
+		// BallとBall2を区別して記録
+		string ballName = gameObject.name;
+		if (ballName == "Ball")
+		{
+			SharedPositionDataRecorder.AddBallPosition(timestamp, _ball.position);
+		}
+		else if (ballName == "Ball2" || ballName == "Ball２")
+		{
+			SharedPositionDataRecorder.AddBall2Position(timestamp, _ball.position);
+		}
+		else
+		{
+			// その他の場合はBallとして記録
+			SharedPositionDataRecorder.AddBallPosition(timestamp, _ball.position);
+		}
 	}
 
 	/// <summary>
