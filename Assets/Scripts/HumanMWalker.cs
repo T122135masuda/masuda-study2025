@@ -12,13 +12,22 @@ public class HumanMWalker : MonoBehaviour
     public float walkSpeed = 2.0f;
 
     [Tooltip("開始位置")]
-    public Vector3 startPosition = new Vector3(9.17f, 0f, 3.71f); // 開始位置
+    public Vector3 startPosition = new Vector3(4.99f, 0.978f, 4.45f); // 開始位置
 
     [Tooltip("経由点")]
     public Vector3 waypoint = new Vector3(0.05f, 0f, 3.71f); // 経由点
 
     [Tooltip("最終目標位置")]
     public Vector3 targetPosition = new Vector3(-10.77f, 0f, 3.71f); // 最終目標
+
+    [Tooltip("テレポート先位置（15秒後に移動）")]
+    public Vector3 teleportPosition = new Vector3(2.1f, 0.978f, 4.45f); // テレポート先位置
+
+    [Tooltip("テレポートまでの待機時間（秒）")]
+    public float teleportDelayTime = 15.0f; // 15秒後にテレポート
+
+    [Tooltip("テレポート後の目標位置（この位置まで歩行）")]
+    public Vector3 walkTargetPosition = new Vector3(-2.17f, 0.978f, 4.45f); // 目標位置
 
     [Tooltip("到着判定の距離（m）")]
     public float arrivalDistance = 0.5f;
@@ -30,7 +39,7 @@ public class HumanMWalker : MonoBehaviour
     public float specialWaitTime = 3.0f;
 
     [Tooltip("エンターキー押下後の待機時間（秒）")]
-    public float startDelayTime = 27.0f;
+    public float startDelayTime = 15.0f;
 
     [Tooltip("自動開始")]
     public bool autoStart = false;
@@ -80,21 +89,14 @@ public class HumanMWalker : MonoBehaviour
     private float _waitTimer = 0f;
     private bool _isDelayedStart = false;
     private float _delayTimer = 0f;
-    private bool _hasReachedWaypoint = false;
     // ジャンプ関連の内部状態は廃止
     private Animator _animator;
     private CharacterController _characterController;
 
-    // Z閾値での回転制御
-    private bool _hasPerformedZRotation = false;
-    private bool _isRotatingSequence = false;
-
-    // しきい値設定（新しい座標に合わせて調整）
-    private const float ZRotationThreshold = 3.71f; // Z座標が3.71の時
-    private const float ZThresholdEpsilon = 0.005f;
-    private const float RotateDurationSeconds = 1.0f;
-    private const float RotateYFirst = -92.218f;
-    private const float RotateYSecond = 0f;
+    // テレポートシーケンス用の変数
+    private Coroutine _teleportSequenceCoroutine = null;
+    private float _sequenceStartTime = -1f;
+    private bool _isTeleportWalk = false; // テレポート後の歩行アニメだけ行う区間
 
     // Legacy アニメーションは未使用
 
@@ -121,9 +123,10 @@ public class HumanMWalker : MonoBehaviour
         _characterController = GetComponent<CharacterController>();
         // Legacy Animation は未使用
 
-        // 初期位置を確実に設定
-        transform.position = startPosition;
-        _currentTarget = waypoint; // 最初は経由点へ
+        // 初期位置を確実に設定（Y座標を0.978に統一）
+        Vector3 initPos = startPosition;
+        initPos.y = 0.978f;
+        transform.position = initPos;
         _isMoving = false; // 初期状態では移動しない（エンターキー待ち）
 
         // 座標記録用の初期化
@@ -158,6 +161,10 @@ public class HumanMWalker : MonoBehaviour
 
         // 初期状態はIdleアニメーション
         UpdateAnimation(false, 0f);
+
+        // テレポートシーケンスを開始
+        _sequenceStartTime = Time.time;
+        _teleportSequenceCoroutine = StartCoroutine(TeleportSequence());
 
         // 自動開始
         if (autoStart)
@@ -300,10 +307,7 @@ public class HumanMWalker : MonoBehaviour
             if (showDebugInfo)
             {
                 Debug.Log("=== エンターキーが押されました ===");
-                Debug.Log("移動手順:");
-                Debug.Log($"1. スタート位置: {startPosition}");
-                Debug.Log($"2. 経由点: {waypoint}");
-                Debug.Log($"3. 最終目標: {targetPosition}");
+                Debug.Log($"スタート位置: {startPosition}");
             }
 
             // 座標記録を開始
@@ -316,19 +320,20 @@ public class HumanMWalker : MonoBehaviour
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             SharedPositionDataRecorder.SetSharedTimestamp(timestamp);
 
-            // エンターキーを押した場合は、指定秒数待機してから開始
+            // エンターキーを押した場合は、指定秒数待機
             _isDelayedStart = true;
             _delayTimer = startDelayTime;
             _isMoving = false;
             _isWaiting = false;
-            _hasReachedWaypoint = false; // 経由点到達フラグをリセット
 
-            // 強制的に初期位置に設定
-            transform.position = startPosition;
+            // 強制的に初期位置に設定（Y座標を0.978に統一）
+            Vector3 resetPos = startPosition;
+            resetPos.y = 0.978f;
+            transform.position = resetPos;
             if (_characterController != null)
             {
                 _characterController.enabled = false;
-                _characterController.transform.position = startPosition;
+                _characterController.transform.position = resetPos;
                 _characterController.enabled = true;
             }
 
@@ -346,20 +351,15 @@ public class HumanMWalker : MonoBehaviour
             _delayTimer -= Time.deltaTime;
             if (_delayTimer <= 0f)
             {
-                // 待機完了、歩行開始
+                // 待機完了。経由点へは歩行しない
                 _isDelayedStart = false;
-                _currentTarget = waypoint; // 最初は経由点へ
-                _isMoving = true;
+                _isMoving = false;
                 _isWaiting = false;
-
-                // 歩行アニメーションに切り替え
-                UpdateAnimation(true, walkSpeed);
+                UpdateAnimation(false, 0f);
 
                 if (showDebugInfo)
                 {
-                    Debug.Log("=== 待機完了、歩行開始 ===");
-                    Debug.Log($"HumanMWalker: 最初の目標（経由点）: {_currentTarget}");
-                    Debug.Log($"HumanMWalker: 経由点到達フラグ: {_hasReachedWaypoint}");
+                    Debug.Log("=== 待機完了（経由点へは移動しません） ===");
                 }
             }
             else
@@ -406,17 +406,6 @@ public class HumanMWalker : MonoBehaviour
 
     private void MoveToTarget()
     {
-        // Z=0.81 到達時の回転シーケンス判定
-        if (!_hasPerformedZRotation && !_isRotatingSequence)
-        {
-            float z = transform.position.z;
-            if (z >= ZRotationThreshold - ZThresholdEpsilon)
-            {
-                StartCoroutine(RunZRotationSequence());
-                return; // 回転中は移動しない
-            }
-        }
-
         // 目標までの距離を計算（XZ平面のみ）
         Vector3 currentPos = transform.position;
         Vector3 targetPos = _currentTarget;
@@ -462,11 +451,19 @@ public class HumanMWalker : MonoBehaviour
         {
             // CharacterControllerのMoveは相対移動
             _characterController.Move(movement);
+            // Y座標を0.978に維持
+            Vector3 pos = transform.position;
+            pos.y = 0.978f;
+            transform.position = pos;
         }
         else
         {
             // CharacterControllerがない場合は直接位置変更
             transform.position += movement;
+            // Y座標を0.978に維持
+            Vector3 pos = transform.position;
+            pos.y = 0.978f;
+            transform.position = pos;
         }
 
         // 回転（移動方向を向く）
@@ -481,77 +478,18 @@ public class HumanMWalker : MonoBehaviour
         {
             Debug.Log($"HumanMWalker: 移動中 - 現在位置: {transform.position}, 目標: {_currentTarget}, 距離: {distanceToTarget:F2}");
             Debug.Log($"HumanMWalker: 移動方向: {direction}, 移動量: {movement}");
-            Debug.Log($"HumanMWalker: 移動状態フラグ - _isMoving:{_isMoving}, _isWaiting:{_isWaiting}, _hasReachedWaypoint:{_hasReachedWaypoint}");
+            Debug.Log($"HumanMWalker: 移動状態フラグ - _isMoving:{_isMoving}, _isWaiting:{_isWaiting}");
         }
     }
 
-
-    private IEnumerator RunZRotationSequence()
-    {
-        _isRotatingSequence = true;
-        _isMoving = false;
-
-        // 1秒で Y = -92.218 へ回転
-        Quaternion startRot = transform.rotation;
-        Quaternion midRot = Quaternion.Euler(0f, RotateYFirst, 0f);
-        float t = 0f;
-        while (t < 1f)
-        {
-            t += Time.deltaTime / RotateDurationSeconds;
-            float clamped = Mathf.Clamp01(t);
-            transform.rotation = Quaternion.Slerp(startRot, midRot, clamped);
-            yield return null;
-        }
-
-        // 1秒で Y = 0 に戻す
-        Quaternion endRot = Quaternion.Euler(0f, RotateYSecond, 0f);
-        t = 0f;
-        while (t < 1f)
-        {
-            t += Time.deltaTime / RotateDurationSeconds;
-            float clamped = Mathf.Clamp01(t);
-            transform.rotation = Quaternion.Slerp(midRot, endRot, clamped);
-            yield return null;
-        }
-
-        _hasPerformedZRotation = true;
-        _isRotatingSequence = false;
-        _isMoving = true; // 歩行を再開
-
-        if (showDebugInfo)
-        {
-            Debug.Log("HumanMWalker: Z=0.81回転シーケンス完了。歩行を再開します。");
-        }
-    }
 
     private void ArrivedAtTarget()
     {
         _isMoving = false;
 
-        if (!_hasReachedWaypoint)
+        if (showDebugInfo)
         {
-            // 経由点に到着
-            _hasReachedWaypoint = true;
-            _currentTarget = targetPosition; // 次の目標は最終位置
-            _waitTimer = waitTime; // 待機時間を設定
-            _isWaiting = true;
-
-            if (showDebugInfo)
-            {
-                Debug.Log("=== 経由点に到着 ===");
-                Debug.Log($"HumanMWalker: 経由点に到着しました: {waypoint}");
-                Debug.Log($"HumanMWalker: 次の目標: {targetPosition}");
-            }
-        }
-        else
-        {
-            // 最終目標に到着
-            if (showDebugInfo)
-            {
-                Debug.Log("=== 最終目標に到着 ===");
-                Debug.Log($"HumanMWalker: 最終目標に到着しました: {targetPosition}");
-                Debug.Log("HumanMWalker: 移動完了。");
-            }
+            Debug.Log("HumanMWalker: 目標に到着しました。移動完了。");
         }
     }
 
@@ -563,51 +501,37 @@ public class HumanMWalker : MonoBehaviour
         {
             _isWaiting = false;
 
-            // 待機後に移動を再開
-            if (_hasReachedWaypoint)
-            {
-                _isMoving = true; // 最終目標への移動を開始
-                UpdateAnimation(true, walkSpeed);
-            }
-
             if (showDebugInfo)
             {
                 Debug.Log("HumanMWalker: 待機完了");
-                if (_hasReachedWaypoint)
-                {
-                    Debug.Log($"HumanMWalker: 最終目標への移動を開始: {targetPosition}");
-                }
             }
         }
     }
 
     public void StartWalking()
     {
-        // 強制的に初期位置に設定
-        transform.position = startPosition;
+        // 強制的に初期位置に設定（Y座標を0.978に統一）
+        Vector3 resetPos = startPosition;
+        resetPos.y = 0.978f;
+        transform.position = resetPos;
         if (_characterController != null)
         {
             _characterController.enabled = false;
-            _characterController.transform.position = startPosition;
+            _characterController.transform.position = resetPos;
             _characterController.enabled = true;
         }
 
-        // 経由点システムの初期化
-        _currentTarget = waypoint; // 最初は経由点へ
-        _hasReachedWaypoint = false; // 経由点到達フラグをリセット
-
-        _isMoving = true;
+        _isMoving = false;
         _isWaiting = false;
 
-        // 歩行アニメーションに切り替え
-        UpdateAnimation(true, walkSpeed);
+        // Idleアニメーション
+        UpdateAnimation(false, 0f);
 
         if (showDebugInfo)
         {
-            Debug.Log("HumanMWalker: 歩行開始。最初からやり直します。");
+            Debug.Log("HumanMWalker: 初期位置にリセットしました。");
             Debug.Log($"HumanMWalker: 設定位置: {startPosition}");
             Debug.Log($"HumanMWalker: 実際の位置: {transform.position}");
-            Debug.Log($"HumanMWalker: 最初の目標（経由点）: {_currentTarget}");
         }
     }
 
@@ -630,9 +554,12 @@ public class HumanMWalker : MonoBehaviour
     public void SetStartPosition(Vector3 newStart)
     {
         startPosition = newStart;
+        startPosition.y = 0.978f; // Y座標を0.978に統一
         if (!_isMoving && !_isWaiting)
         {
-            transform.position = startPosition;
+            Vector3 pos = startPosition;
+            pos.y = 0.978f;
+            transform.position = pos;
         }
     }
 
@@ -980,6 +907,99 @@ public class HumanMWalker : MonoBehaviour
         if (showDebugInfo)
         {
             Debug.Log($"[HumanMWalker] 座標記録を終了しました（記録時間: {recordingDuration:F2}秒）");
+        }
+    }
+
+    /// <summary>
+    /// テレポートシーケンス: 10-55秒のランダム時間後にテレポート → 目標位置まで歩行 → 元の位置にテレポート → 停止
+    /// </summary>
+    private IEnumerator TeleportSequence()
+    {
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] テレポートシーケンス開始 - 初期位置: {startPosition}");
+        }
+
+        // 初期位置に設定（Y座標を0.978に統一）
+        Vector3 initialPos = startPosition;
+        initialPos.y = 0.978f;
+        transform.position = initialPos;
+        if (_characterController != null)
+        {
+            _characterController.enabled = false;
+            _characterController.transform.position = initialPos;
+            _characterController.enabled = true;
+        }
+        _isMoving = false;
+        UpdateAnimation(false, 0f);
+
+        // 10秒から55秒の間でランダムに待機
+        float randomDelay = UnityEngine.Random.Range(10f, 55f);
+        yield return new WaitForSeconds(randomDelay);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] {randomDelay:F2}秒経過 - テレポート位置へ移動: {teleportPosition}");
+        }
+
+        // テレポート位置に移動（Y座標を0.978に統一）
+        Vector3 teleportPos = teleportPosition;
+        teleportPos.y = 0.978f;
+        transform.position = teleportPos;
+        if (_characterController != null)
+        {
+            _characterController.enabled = false;
+            _characterController.transform.position = teleportPos;
+            _characterController.enabled = true;
+        }
+
+        // 目標位置を設定して歩行開始（Y座標を0.978に統一）
+        Vector3 targetPos = walkTargetPosition;
+        targetPos.y = 0.978f;
+        _currentTarget = targetPos;
+        _isMoving = true;
+        UpdateAnimation(true, walkSpeed);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] 歩行開始 - 目標位置: {walkTargetPosition}");
+        }
+
+        // 目標位置に到着するまで待機（Update()のMoveToTarget()が移動を制御）
+        while (_isMoving)
+        {
+            // Update()のMoveToTarget()が到着判定を行い、_isMovingをfalseにする
+            yield return null;
+        }
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] 目標位置に到着しました: {walkTargetPosition}");
+        }
+
+        // 元の位置にテレポート（Y座標を0.978に統一）
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] 歩行終了 - 元の位置にテレポート: {startPosition}");
+        }
+
+        Vector3 returnPos = startPosition;
+        returnPos.y = 0.978f;
+        transform.position = returnPos;
+        if (_characterController != null)
+        {
+            _characterController.enabled = false;
+            _characterController.transform.position = returnPos;
+            _characterController.enabled = true;
+        }
+
+        // 歩行を停止
+        _isMoving = false;
+        UpdateAnimation(false, 0f);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[HumanMWalker] テレポートシーケンス完了 - 歩行を停止しました");
         }
     }
 

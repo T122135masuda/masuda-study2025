@@ -36,7 +36,8 @@ public class AutoSetup : MonoBehaviour
     {
         "Capsule-w-1","Capsule-w-2","Capsule-w-3",
         "Capsule-b-1","Capsule-b-2","Capsule-b-3",
-        "HumanM_Model"
+        "HumanM_Model",
+        "Capsule-humann"
     };
 
     [Header("First Person Camera")]
@@ -167,9 +168,16 @@ public class AutoSetup : MonoBehaviour
                 continue;
             }
 
-            // HumanM_Modelの場合は特別な処理
-            if (name == "HumanM_Model")
+            // HumanM_ModelとCapsule-humannの場合は特別な処理（HumanMWalkerをアタッチ）
+            if (name == "HumanM_Model" || name == "Capsule-humann")
             {
+                // BasketballAgentControllerが既にある場合は削除（HumanMWalkerと競合するため）
+                var existingController = obj.GetComponent<BasketballAgentController>();
+                if (existingController != null)
+                {
+                    Destroy(existingController);
+                }
+
                 var walker = obj.GetComponent<HumanMWalker>();
                 if (walker == null)
                 {
@@ -191,8 +199,8 @@ public class AutoSetup : MonoBehaviour
             {
                 cc = obj.AddComponent<CharacterController>();
 
-                // HumanM_Model用の特別な設定
-                if (name == "HumanM_Model")
+                // HumanM_ModelとCapsule-humann用の特別な設定
+                if (name == "HumanM_Model" || name == "Capsule-humann")
                 {
                     // 人間キャラクター用の設定
                     cc.center = Vector3.up * 0.9f;
@@ -216,8 +224,8 @@ public class AutoSetup : MonoBehaviour
                 rb.useGravity = false;
             }
 
-            // HumanM_Model用のアニメーション設定
-            if (name == "HumanM_Model")
+            // HumanM_ModelとCapsule-humann用のアニメーション設定
+            if (name == "HumanM_Model" || name == "Capsule-humann")
             {
                 SetupHumanMAnimation(obj);
             }
