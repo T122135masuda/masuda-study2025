@@ -1,0 +1,454 @@
+================================================================================
+データ保存処理の実装について（教授向け説明資料）
+================================================================================
+
+1. システムの全体概要
+================================================================================
+
+本システムは、Unity上で動作するリアルタイムデータ記録システムです。
+複数のオブジェクト（HumanM、Ball、Ball2）の位置データを統合的に記録し、
+CSVファイルとして保存する機能を実装しています。
+
+データ保存の中核となるのは「SharedPositionDataRecorder」というスタティッククラスで、
+このクラスがすべての位置データを一元管理しています。
+各オブジェクトを制御するスクリプト（HumanMWalker、BallPassControllerなど）は、
+この共有クラスを通じてデータを記録します。
+
+================================================================================
+2. Update関数内でのデータ記録処理
+================================================================================
+
+Unityでは、MonoBehaviourクラスのUpdate関数が毎フレーム呼び出されます。
+本システムでは、このUpdate関数内で定期的に位置データを記録する処理を実行しています。
+
+【HumanMWalker.cs の Update関数内での処理】
+
+（1）エンターキー入力の検出と記録開始処理
+
+エンターキーが押されると、以下の処理が実行されます：
+- 座標記録を開始するための初期化処理を実行
+- SharedPositionDataRecorder.SetSharedTimestamp()メソッドを呼び出して、
+  共有タイムスタンプを設定（他のスクリプトと同期するため）
+- 記録開始時刻を内部変数に保存
+- 次の記録時刻を計算して設定
+
+この共有タイムスタンプは、HumanMWalkerとBallPassControllerが
+同じタイミングで記録を開始したことを示すための識別子として使用されます。
+ファイル名にも使用されるため、関連するデータファイルを同じタイムスタンプで識別できます。
+
+（2）定期的な座標記録処理（Update関数内での詳細な処理フロー）
+
+UnityのUpdate関数は、ゲームが実行されている間、毎フレーム（通常は1秒間に60回程度）
+呼び出されます。本システムでは、このUpdate関数内で以下の処理を実行しています。
+
+【処理の実行タイミング】
+
+Update関数が呼び出されるたびに、以下の3つの条件をすべてチェックします：
+1. _isRecordingフラグがtrue（記録中であることを示す内部フラグ）
+2. enablePositionRecordingフラグがtrue（記録機能が有効であることを示す設定フラグ）
+3. Time.time >= _nextRecordTime（現在のゲーム時間が、次の記録時刻に達している）
+
+これらの条件をすべて満たした場合にのみ、座標記録処理を実行します。
+
+【記録処理の詳細な流れ】
+
+条件が満たされた場合、以下の手順で処理が実行されます：
+
+1. RecordPosition()メソッドの呼び出し
+   このメソッド内で、以下の処理が行われます：
+
+   （1）記録開始時刻の確認
+   _recordingStartTimeが-1以下（記録が開始されていない）の場合は処理を中断します。
+
+   （2）タイムスタンプの計算
+   記録開始からの経過時間を計算します：
+   timestamp = Time.time - _recordingStartTime
+
+   Time.timeは、ゲーム開始時からの経過時間（秒）を表すUnityのシステム変数です。
+   これから記録開始時刻を引くことで、記録開始からの相対時間が得られます。
+
+   （3）現在位置の取得
+   transform.positionプロパティから、オブジェクトの現在の3D座標（X、Y、Z）を取得します。
+
+   （4）データの追加
+   SharedPositionDataRecorder.AddHumanMPosition()メソッドを呼び出し、
+   計算したタイムスタンプと取得した位置データを、共有データリストに追加します。
+
+2. 次の記録時刻の更新
+   記録処理が完了したら、次の記録時刻を更新します：
+   _nextRecordTime = Time.time + _recordInterval
+
+   これにより、次の記録は_recordInterval秒後に行われることになります。
+
+   _recordIntervalは、目標記録周波数（targetRecordingFrequency）から計算されます。
+   計算式：_recordInterval = 1.0 / targetRecordingFrequency
+
+   例えば、20Hz（1秒間に20回）で記録する場合：
+   _recordInterval = 1.0 / 20 = 0.05秒
+   つまり、0.05秒ごと（1秒間に20回）に記録が実行されます。
+
+3. 記録時間の確認
+   CheckRecordingDuration()メソッドを呼び出して、
+   記録開始からの経過時間が設定された上限（180秒）に達していないかを確認します。
+
+   上限に達した場合は、自動的に記録を停止し、CSVファイルに保存する処理が実行されます。
+
+【Update関数内での他の処理】
+
+座標記録処理以外にも、Update関数内では以下の処理が並行して実行されています：
+
+- エンターキー入力の検出（記録開始のトリガー）
+- 待機処理のタイマー管理
+- オブジェクトの移動処理
+- アニメーションの更新
+- Cube-humanオブジェクトの座標記録（別の記録システム）
+
+これらの処理は、Update関数が呼び出されるたびに順次実行されますが、
+座標記録処理は、タイムスタンプによる条件チェックにより、
+設定された周波数でのみ実行されるようになっています。
+
+（3）記録時間の確認処理
+
+記録後、CheckRecordingDuration()メソッドを呼び出して、
+記録時間が設定された上限（180秒）に達していないかを確認します。
+上限に達した場合は、自動的に記録を停止し、CSVファイルに保存します。
+
+【Update関数内の座標記録処理のコード（HumanMWalker.cs 427-433行目）】
+
+実際のコードは以下の通りです：
+
+// 座標記録（エンターキー押下から3分間、指定された周波数でデータを収集）
+if (_isRecording && enablePositionRecording && Time.time >= _nextRecordTime)
+{
+    RecordPosition();
+    _nextRecordTime = Time.time + _recordInterval;
+    CheckRecordingDuration();
+}
+
+このコードは、記録中フラグ（_isRecording）、記録機能の有効フラグ（enablePositionRecording）、
+次の記録時刻（_nextRecordTime）の3つの条件をチェックしています。
+すべての条件を満たした場合、RecordPosition()メソッドを呼び出して位置データを記録します。
+その後、次の記録時刻を更新し、記録時間の確認処理を行います。
+
+【RecordPosition()メソッドのコード（HumanMWalker.cs 918-924行目）】
+
+RecordPosition()メソッドの実装は以下の通りです：
+
+private void RecordPosition()
+{
+    if (_recordingStartTime < 0f) return;
+
+    float timestamp = Time.time - _recordingStartTime;
+    SharedPositionDataRecorder.AddHumanMPosition(timestamp, transform.position);
+}
+
+このメソッドでは、まず記録開始時刻が設定されているか確認します。
+設定されていない場合は処理を中断します。
+次に、記録開始からの経過時間を計算し、現在の位置（transform.position）とともに
+SharedPositionDataRecorder.AddHumanMPosition()メソッドを呼び出してデータを追加します。
+
+【BallPassController.cs の Update関数内での処理】
+
+BallPassControllerでも同様の処理が行われますが、
+記録するのはボールの位置データです。
+
+記録処理の流れ：
+1. RecordPosition()メソッド内で、ボールの名前を確認
+2. 名前が"Ball"の場合はAddBallPosition()を、
+   "Ball2"の場合はAddBall2Position()を呼び出します
+3. タイムスタンプとボールの位置データを共有データリストに追加
+
+================================================================================
+3. SharedPositionDataRecorderクラス内のデータ管理処理
+================================================================================
+
+【データ構造】
+
+位置データは「UnifiedPositionData」という構造体で管理されています。
+この構造体には以下のフィールドが含まれます：
+- timestamp：記録開始からの経過時間（秒）
+- humanMPosition：HumanMの位置（Vector3型、Nullable）
+- ballPosition：Ballの位置（Vector3型、Nullable）
+- ball2Position：Ball2の位置（Vector3型、Nullable）
+
+Nullable型（?付き）を使用しているため、オブジェクトが存在しない場合は
+nullを格納することができ、メモリ効率が良くなります。
+
+すべてのデータは、List<UnifiedPositionData>型の
+_unifiedDataListというリストに保存されます。
+
+【データ追加処理（AddHumanMPositionメソッドなど）】
+
+データを追加する際の処理フロー：
+
+1. lock文で_dataLockオブジェクトをロック
+   （複数のスクリプトから同時にアクセスされても安全にするため）
+
+2. 同じタイムスタンプのデータが既に存在するかを検索
+   FindIndexメソッドを使用して、タイムスタンプの差が0.0001秒以内の
+   データを検索します（浮動小数点数の誤差を考慮）
+
+3. 既存データが見つかった場合：
+   - 既存のデータ構造体を取得
+   - 新しい位置データで更新
+   - リスト内の該当要素を更新したデータで置き換え
+
+4. 既存データが見つからなかった場合：
+   - 新しいUnifiedPositionData構造体を作成
+   - タイムスタンプと位置データを設定（他のオブジェクトの位置はnull）
+   - リストに追加
+
+この処理により、同じタイムスタンプに複数のオブジェクトの位置データを
+統合して記録することができます。
+
+【AddHumanMPositionメソッドのコード（SharedPositionDataRecorder.cs 73-98行目）】
+
+実際のコードは以下の通りです：
+
+public static void AddHumanMPosition(float timestamp, Vector3 position)
+{
+    lock (_dataLock)
+    {
+        // 同じタイムスタンプのデータを探す
+        int index = _unifiedDataList.FindIndex(d => Mathf.Abs(d.timestamp - timestamp) < 0.0001f);
+        if (index >= 0)
+        {
+            // 既存のデータを更新
+            var existing = _unifiedDataList[index];
+            existing.humanMPosition = position;
+            _unifiedDataList[index] = existing;
+        }
+        else
+        {
+            // 新しいデータを追加
+            _unifiedDataList.Add(new UnifiedPositionData
+            {
+                timestamp = timestamp,
+                humanMPosition = position,
+                ballPosition = null,
+                ball2Position = null
+            });
+        }
+    }
+}
+
+このコードでは、まずlock文で_dataLockオブジェクトをロックして、
+複数のスレッドから同時にアクセスされても安全にしています。
+次に、FindIndexメソッドでタイムスタンプが0.0001秒以内のデータを検索します。
+既存データが見つかった場合は更新し、見つからなかった場合は新しいデータを追加します。
+
+【スレッド安全性について】
+
+複数のスクリプトから同時にデータを追加する可能性があるため、
+lock文を使用して排他制御を行っています。
+
+lock（_dataLock）ブロック内のコードは、一度に1つのスレッドからのみ
+実行されることが保証されます。これにより、データの整合性が保たれます。
+
+================================================================================
+4. CSVファイルへの保存処理（SaveToCSVメソッド）
+================================================================================
+
+【コードの場所】
+
+CSV保存のメインコードは以下のファイルにあります：
+- ファイル：Assets/Scripts/SharedPositionDataRecorder.cs
+- メソッド：SaveToCSV（189行目から285行目）
+- 実際のファイル書き込み：265行目のFile.WriteAllText
+
+このメソッドが呼び出される場所：
+- HumanMWalker.cs の StopPositionRecording メソッド（948行目）
+- BallPassController.cs の StopPositionRecording メソッド（1120行目）
+
+記録時間が上限に達したとき、または手動で記録を停止したときに、
+SaveToCSVメソッドが呼び出されて、データがCSVファイルに保存されます。
+
+【保存処理の流れ】
+
+1. データのソート処理
+   OrderByメソッドを使用して、タイムスタンプの昇順でソートします。
+   これにより、時系列順にデータが並びます。
+
+2. データの補間処理
+   元のデータを90Hz（1秒間に90回）の等間隔データに補間します。
+   線形補間（Linear Interpolation）を使用して、
+   前後のデータポイント間を補完します。
+
+   補間処理の詳細：
+   - 目標周波数（90Hz）から間隔を計算（約0.011秒間隔）
+   - 最初のタイムスタンプから最後のタイムスタンプまで、
+     目標間隔ごとにデータポイントを生成
+   - 各ポイントは、前後の実データポイント間を線形補間して計算
+
+   この補間により、異なる周波数で記録されたデータを統一的な形式に変換できます。
+
+3. CSVファイルの生成
+   StringBuilderクラスを使用して、CSV形式の文字列を効率的に構築します。
+
+   CSVファイルの構造：
+   - 1行目：ヘッダー行
+     "Timestamp,HumanMPositionX,HumanMPositionY,HumanMPositionZ,
+      BallPositionX,BallPositionY,BallPositionZ,
+      Ball2PositionX,Ball2PositionY,Ball2PositionZ"
+
+   - 2行目以降：データ行
+     各データポイントについて、タイムスタンプと各オブジェクトの
+     X、Y、Z座標をカンマ区切りで出力
+     値がnullの場合は空文字列を出力
+
+4. ファイルへの書き込み処理（詳細説明）
+
+ファイル書き込みは、C#の標準ライブラリであるSystem.IO名前空間の
+File.WriteAllTextメソッドを使用して実装されています。
+
+【CSV文字列生成のコード（SharedPositionDataRecorder.cs 241-263行目）】
+
+実際のコードは以下の通りです：
+
+StringBuilder csv = new StringBuilder();
+
+// ヘッダー行
+csv.AppendLine("Timestamp,HumanMPositionX,HumanMPositionY,HumanMPositionZ,BallPositionX,BallPositionY,BallPositionZ,Ball2PositionX,Ball2PositionY,Ball2PositionZ");
+
+// データ行（データがない場合は空行のみ）
+if (hasData)
+{
+    foreach (var data in interpolatedData)
+    {
+        string humanMX = data.humanMPosition.HasValue ? data.humanMPosition.Value.x.ToString("F6") : "";
+        string humanMY = data.humanMPosition.HasValue ? data.humanMPosition.Value.y.ToString("F6") : "";
+        string humanMZ = data.humanMPosition.HasValue ? data.humanMPosition.Value.z.ToString("F6") : "";
+        string ballX = data.ballPosition.HasValue ? data.ballPosition.Value.x.ToString("F6") : "";
+        string ballY = data.ballPosition.HasValue ? data.ballPosition.Value.y.ToString("F6") : "";
+        string ballZ = data.ballPosition.HasValue ? data.ballPosition.Value.z.ToString("F6") : "";
+        string ball2X = data.ball2Position.HasValue ? data.ball2Position.Value.x.ToString("F6") : "";
+        string ball2Y = data.ball2Position.HasValue ? data.ball2Position.Value.y.ToString("F6") : "";
+        string ball2Z = data.ball2Position.HasValue ? data.ball2Position.Value.z.ToString("F6") : "";
+
+        csv.AppendLine($"{data.timestamp:F6},{humanMX},{humanMY},{humanMZ},{ballX},{ballY},{ballZ},{ball2X},{ball2Y},{ball2Z}");
+    }
+}
+
+このコードでは、StringBuilderを使用してCSV形式の文字列を構築しています。
+まずヘッダー行を追加し、次にforeachループで各データポイントの行を追加します。
+各データは、Nullable型の値をチェックして、値があれば小数点以下6桁でフォーマットし、
+値がなければ空文字列を出力します。
+
+【ファイル書き込みのコード（SharedPositionDataRecorder.cs 265-279行目）】
+
+実際のファイル書き込み処理のコードは以下の通りです：
+
+File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8);
+
+// ファイルが実際に存在するか確認
+if (File.Exists(filePath))
+{
+    long fileSize = new FileInfo(filePath).Length;
+    if (enableDebugLogs)
+    {
+        Debug.Log($"[SharedPositionDataRecorder] ✓ 統合座標データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {interpolatedData.Count}件)");
+    }
+}
+else
+{
+    Debug.LogError($"[SharedPositionDataRecorder] ✗ ファイルの保存に失敗しました: {filePath}");
+}
+
+処理の詳細：
+（1）StringBuilderから文字列への変換
+   csv.ToString()メソッドを呼び出して、StringBuilderオブジェクト内に
+   構築されたCSV形式の文字列データを、通常のstring型の文字列に変換します。
+   StringBuilderは、メモリ上で効率的に文字列を構築するためのクラスです。
+
+（2）File.WriteAllTextメソッドの呼び出し
+   File.WriteAllText(filePath, csv.ToString(), Encoding.UTF8)
+   このメソッドは3つの引数を取ります：
+   - filePath：保存先のファイルパス（文字列）
+   - csv.ToString()：保存する文字列データ（CSV形式の文字列）
+   - Encoding.UTF8：文字エンコーディング（UTF-8形式）
+
+   このメソッドは、指定されたファイルパスに文字列データを一括書き込みします。
+   既にファイルが存在する場合は上書きされ、存在しない場合は新規作成されます。
+   メソッドの実行が完了すると、ファイルがディスクに保存されます。
+
+（3）アトミックな書き込み
+   File.WriteAllTextメソッドは、データを一時ファイルに書き込んでから
+   最終的なファイル名にリネームするという処理を行います。
+   これにより、書き込み途中にエラーが発生しても、
+   元のファイルが壊れることを防ぎます。
+
+（4）保存の確認
+   ファイル書き込み後、File.Exists()メソッドでファイルの存在を確認し、
+   存在する場合はファイルサイズを取得してログに出力します。
+   存在しない場合はエラーログを出力します。
+
+5. 保存の確認処理
+   File.Existsメソッドでファイルの存在を確認し、
+   ファイルサイズを取得してログに記録します。
+
+   確認処理の流れ：
+   - File.Exists(filePath)でファイルが存在するかを確認
+   - ファイルが存在する場合：
+     new FileInfo(filePath).Lengthでファイルサイズ（バイト数）を取得
+     デバッグログに、ファイルパス、ファイルサイズ、データ件数を出力
+   - ファイルが存在しない場合：
+     エラーログを出力（書き込みに失敗した可能性がある）
+
+【エラーハンドリング】
+
+すべての保存処理はtry-catchブロックで囲まれており、
+エラーが発生した場合は例外をキャッチしてエラーメッセージをログに出力します。
+これにより、ファイルの書き込み権限がない場合やディスク容量不足の場合など、
+各種エラーに対して適切に対処できます。
+
+================================================================================
+5. メモリ管理について
+================================================================================
+
+データは記録中、メモリ上のリストに蓄積されます。
+180秒間、20Hzで記録した場合、約3,600個のデータポイントが生成されます。
+各データポイントは約40バイト程度のため、約144KBのメモリを使用します。
+
+記録が終了してCSVファイルに保存されると、Clear()メソッドが呼び出され、
+リスト内のデータがクリアされます。これにより、メモリが解放されます。
+
+================================================================================
+6. システムの特徴と利点
+================================================================================
+
+【統合的なデータ管理】
+複数のオブジェクトの位置データを1つのクラスで管理することで、
+データの整合性が保たれ、ファイル名も統一されます。
+
+【タイムスタンプの同期】
+共有タイムスタンプを使用することで、異なるオブジェクトのデータを
+同じタイムスタンプで関連付けることができます。
+
+【スレッド安全性】
+lock文による排他制御により、複数のスクリプトから同時にアクセスされても
+安全にデータを管理できます。
+
+【データの補間】
+異なる周波数で記録されたデータを、統一的な周波数（90Hz）に補間することで、
+後続のデータ分析処理が容易になります。
+
+【エラーハンドリング】
+適切な例外処理により、予期しないエラーが発生しても
+システム全体がクラッシュすることなく、エラー情報を記録できます。
+
+================================================================================
+7. まとめ
+================================================================================
+
+本システムは、UnityのUpdate関数内で定期的に位置データを記録し、
+共有クラス（SharedPositionDataRecorder）で統合管理し、
+最終的にCSVファイルとして保存するという流れで動作しています。
+
+記録処理は、タイマーベースで実行され、設定された周波数（例：20Hz）
+でデータを収集します。記録が終了すると、データはソート・補間され、
+CSVファイルとして保存されます。
+
+この設計により、複数のオブジェクトの位置データを効率的に記録・管理し、
+分析に適した形式で保存することができます。
+
+================================================================================

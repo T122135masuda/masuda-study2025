@@ -42,7 +42,7 @@ public class EyeDataRecorder : MonoBehaviour
     // 自動終了コルーチン
     private Coroutine autoStopCoroutine = null;
     private const float AUTO_STOP_DURATION_SAMPLE_SCENE = 180.0f; // SampleScene: 180秒後に自動終了
-    private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 180.0f; // SampleScene1/2: 180秒後に自動終了
+    private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 60.0f;  // SampleScene1/2: 60秒後に自動終了
 
     // 視線データ構造
     [System.Serializable]
