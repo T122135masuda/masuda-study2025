@@ -75,7 +75,15 @@ public class HumanMWalker : MonoBehaviour
 
     [Header("Debug")]
     [Tooltip("デバッグ情報を表示")]
-    public bool showDebugInfo = true;
+    public bool showDebugInfo = false;
+
+    [Header("Cube-human UI")]
+    [Tooltip("Cube-humanの動き出しタイミングを画面表示")]
+    public bool showCubeHumanStartTimingOnScreen = true;
+    [Tooltip("画面表示の位置（左上基準）")]
+    public Vector2 cubeHumanTimingScreenPos = new Vector2(20f, 20f);
+    [Tooltip("画面表示のフォントサイズ")]
+    public int cubeHumanTimingFontSize = 18;
 
     [Header("Position Recording")]
     [Tooltip("座標記録を有効にする")]
@@ -121,6 +129,13 @@ public class HumanMWalker : MonoBehaviour
     private bool _isCubeHumanRecording = false;
     private float _cubeHumanRecordingStartTime = -1f;
     private float _cubeHumanNextRecordTime = 0f; // Cube-human用の次の記録時刻
+    private float _cubeHumanSequenceStartTime = -1f;
+    private float _cubeHumanFirstDelay = -1f;
+    private float _cubeHumanSecondDelay = -1f;
+    private bool _cubeHumanFirstTriggered = false;
+    private bool _cubeHumanSecondTriggered = false;
+    private bool _cubeHumanScheduleReady = false;
+    private bool _cubeHumanSequenceStarted = false;
 
     // Cube-human座標データ構造
     [System.Serializable]
@@ -193,13 +208,55 @@ public class HumanMWalker : MonoBehaviour
 
         // テレポートシーケンスを開始
         _sequenceStartTime = Time.time;
-        _teleportSequenceCoroutine = StartCoroutine(TeleportSequence());
+        if (gameObject.name == "Cube-human")
+        {
+            // 再生ボタン（シーン開始）で出現タイミングを決定
+            _cubeHumanFirstDelay = UnityEngine.Random.Range(50f, 60f);
+            _cubeHumanSecondDelay = UnityEngine.Random.Range(120f, 150f);
+            _cubeHumanScheduleReady = true;
+            _cubeHumanSequenceStarted = false;
+            _cubeHumanFirstTriggered = false;
+            _cubeHumanSecondTriggered = false;
+        }
+        else
+        {
+            _teleportSequenceCoroutine = StartCoroutine(TeleportSequence());
+        }
 
         // 自動開始
         if (autoStart)
         {
             StartWalking();
         }
+    }
+
+    private void OnGUI()
+    {
+        if (!showCubeHumanStartTimingOnScreen)
+        {
+            return;
+        }
+
+        if (gameObject.name != "Cube-human")
+        {
+            return;
+        }
+
+        if (!_cubeHumanScheduleReady || _cubeHumanFirstDelay < 0f || _cubeHumanSecondDelay < 0f)
+        {
+            return;
+        }
+
+        string message = $"Cube-human: 出現予定 1回目 {_cubeHumanFirstDelay:F1}秒 / 2回目 {_cubeHumanSecondDelay:F1}秒";
+
+        GUIStyle style = new GUIStyle(GUI.skin.label);
+        style.fontSize = cubeHumanTimingFontSize;
+        style.normal.textColor = Color.white;
+        GUI.Label(
+            new Rect(cubeHumanTimingScreenPos.x, cubeHumanTimingScreenPos.y, 600f, 30f),
+            message,
+            style
+        );
     }
 
     private void SetupAnimation()
@@ -349,11 +406,23 @@ public class HumanMWalker : MonoBehaviour
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             SharedPositionDataRecorder.SetSharedTimestamp(timestamp);
 
-            // エンターキーを押した場合は、指定秒数待機
-            _isDelayedStart = true;
-            _delayTimer = startDelayTime;
-            _isMoving = false;
-            _isWaiting = false;
+            if (gameObject.name == "Cube-human")
+            {
+                if (_cubeHumanScheduleReady && !_cubeHumanSequenceStarted)
+                {
+                    _cubeHumanSequenceStartTime = Time.time;
+                    _cubeHumanSequenceStarted = true;
+                    _teleportSequenceCoroutine = StartCoroutine(TeleportSequence());
+                }
+            }
+            else
+            {
+                // エンターキーを押した場合は、指定秒数待機
+                _isDelayedStart = true;
+                _delayTimer = startDelayTime;
+                _isMoving = false;
+                _isWaiting = false;
+            }
 
             // 強制的に初期位置に設定（Y座標を0.978に統一）
             Vector3 resetPos = startPosition;
@@ -368,7 +437,14 @@ public class HumanMWalker : MonoBehaviour
 
             if (showDebugInfo)
             {
-                Debug.Log($"HumanMWalker: エンターキー押下。{startDelayTime}秒後に歩行開始します。");
+                if (gameObject.name == "Cube-human")
+                {
+                    Debug.Log("HumanMWalker: エンターキー押下。Cube-humanの出現シーケンスを開始します。");
+                }
+                else
+                {
+                    Debug.Log($"HumanMWalker: エンターキー押下。{startDelayTime}秒後に歩行開始します。");
+                }
                 Debug.Log($"HumanMWalker: 設定位置: {startPosition}");
                 Debug.Log($"HumanMWalker: 実際の位置: {transform.position}");
             }
@@ -814,79 +890,6 @@ public class HumanMWalker : MonoBehaviour
         return avoidanceDirection;
     }
 
-    // デバッグ情報を画面に表示
-    private void OnGUI()
-    {
-        if (!showDebugInfo) return;
-
-        GUILayout.BeginArea(new Rect(10, 300, 400, 250));
-        GUILayout.Label("=== HumanMWalker Debug Info ===", GUI.skin.box);
-        GUILayout.Label($"移動中: {_isMoving}");
-        GUILayout.Label($"待機中: {_isWaiting}");
-        GUILayout.Label($"開始待機中: {_isDelayedStart}");
-        GUILayout.Label($"現在の目標: {_currentTarget}");
-        GUILayout.Label($"現在位置: {transform.position}");
-        GUILayout.Label($"設定開始位置: {startPosition}");
-
-        // 位置の差を表示
-        Vector3 positionDiff = transform.position - startPosition;
-        GUILayout.Label($"位置差: {positionDiff}");
-        GUILayout.Label($"歩行速度: {walkSpeed:F2} m/s");
-        // 特定待機位置は廃止
-        if (_isWaiting)
-        {
-            GUILayout.Label($"待機残り時間: {_waitTimer:F1}秒");
-        }
-        if (_isDelayedStart)
-        {
-            GUILayout.Label($"開始待機残り時間: {_delayTimer:F1}秒");
-        }
-
-        // 目標までの距離を表示
-        float distanceToTarget = Vector3.Distance(transform.position, _currentTarget);
-        GUILayout.Label($"目標までの距離: {distanceToTarget:F2}m");
-
-        // 衝突回避情報を表示
-        if (enableCollisionAvoidance)
-        {
-            GUILayout.Space(5);
-            GUILayout.Label("衝突回避:", GUI.skin.box);
-            GUILayout.Label($"検出距離: {avoidanceDistance:F1}m");
-            GUILayout.Label($"回避力: {avoidanceForce:F1}");
-        }
-
-        GUILayout.Space(5);
-        GUILayout.Label("操作:", GUI.skin.box);
-        GUILayout.Label($"エンターキー: {startDelayTime:F0}秒待機後に歩行開始");
-        GUILayout.Label("移動手順:");
-        GUILayout.Label($"1. エンターキー押下 → {startDelayTime:F0}秒待機");
-        GUILayout.Label("2. スタート位置 → ゴール位置へ歩行");
-
-        if (_animator != null)
-        {
-            GUILayout.Label($"Animator有効: {_animator.enabled}");
-            GUILayout.Label($"Animator速度: {_animator.speed:F2}");
-            GUILayout.Label($"Controller: {(_animator.runtimeAnimatorController != null ? _animator.runtimeAnimatorController.name : "None")}");
-
-            if (_animator.GetCurrentAnimatorStateInfo(0).IsName("HumanM@Walk01_Forward"))
-            {
-                GUILayout.Label("現在のアニメーション: 歩行中", GUI.skin.box);
-            }
-            else
-            {
-                GUILayout.Label("現在のアニメーション: その他", GUI.skin.box);
-            }
-        }
-        else
-        {
-            GUILayout.Label("Animator: 見つかりません", GUI.skin.box);
-        }
-
-        GUILayout.Space(5);
-        GUILayout.Label("Animation: 無効化されています（Legacyアニメーションエラー回避のため）", GUI.skin.box);
-
-        GUILayout.EndArea();
-    }
 
     /// <summary>
     /// 座標記録を開始
@@ -1088,6 +1091,12 @@ public class HumanMWalker : MonoBehaviour
             Debug.Log($"[HumanMWalker] テレポートシーケンス開始 - 初期位置: {startPosition}");
         }
 
+        float sequenceStartTime = Time.time;
+        if (gameObject.name == "Cube-human" && _cubeHumanSequenceStartTime >= 0f)
+        {
+            sequenceStartTime = _cubeHumanSequenceStartTime;
+        }
+
         // 初期位置に設定（Y座標を0.978に統一）
         Vector3 initialPos = startPosition;
         initialPos.y = 0.978f;
@@ -1103,6 +1112,13 @@ public class HumanMWalker : MonoBehaviour
 
         // 1回目: 50秒から60秒の間でランダムに待機
         float firstDelay = UnityEngine.Random.Range(50f, 60f);
+        if (gameObject.name == "Cube-human")
+        {
+            if (_cubeHumanFirstDelay > 0f)
+            {
+                firstDelay = _cubeHumanFirstDelay;
+            }
+        }
         yield return new WaitForSeconds(firstDelay);
 
         if (showDebugInfo)
@@ -1110,13 +1126,26 @@ public class HumanMWalker : MonoBehaviour
             Debug.Log($"[HumanMWalker] 1回目: {firstDelay:F2}秒経過 - テレポート位置へ移動: {teleportPosition}");
         }
 
+        if (gameObject.name == "Cube-human")
+        {
+            _cubeHumanFirstTriggered = true;
+        }
+
         // 1回目のテレポートと歩行を実行
         yield return StartCoroutine(ExecuteTeleportAndWalk());
 
         // 2回目までの待機時間を計算（120秒から150秒の間でランダム）
         float secondDelay = UnityEngine.Random.Range(120f, 150f);
-        // 1回目の待機時間を引いて、残りの待機時間を計算
-        float remainingDelay = secondDelay - firstDelay;
+        if (gameObject.name == "Cube-human")
+        {
+            if (_cubeHumanSecondDelay > 0f)
+            {
+                secondDelay = _cubeHumanSecondDelay;
+            }
+        }
+        // シーケンス開始からの経過時間を考慮して残り時間を計算
+        float elapsedSinceStart = Time.time - sequenceStartTime;
+        float remainingDelay = secondDelay - elapsedSinceStart;
         if (remainingDelay > 0f)
         {
             yield return new WaitForSeconds(remainingDelay);
@@ -1125,6 +1154,11 @@ public class HumanMWalker : MonoBehaviour
         if (showDebugInfo)
         {
             Debug.Log($"[HumanMWalker] 2回目: {secondDelay:F2}秒経過 - テレポート位置へ移動: {teleportPosition}");
+        }
+
+        if (gameObject.name == "Cube-human")
+        {
+            _cubeHumanSecondTriggered = true;
         }
 
         // 2回目のテレポートと歩行を実行

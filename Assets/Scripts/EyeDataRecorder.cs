@@ -42,7 +42,7 @@ public class EyeDataRecorder : MonoBehaviour
     // 自動終了コルーチン
     private Coroutine autoStopCoroutine = null;
     private const float AUTO_STOP_DURATION_SAMPLE_SCENE = 180.0f; // SampleScene: 180秒後に自動終了
-    private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 60.0f;  // SampleScene1/2: 60秒後に自動終了
+    private const float AUTO_STOP_DURATION_SAMPLE_SCENE_1_2 = 180.0f;  // SampleScene1/2: 180秒後に自動終了
 
     // 視線データ構造
     [System.Serializable]
@@ -964,9 +964,6 @@ public class EyeDataRecorder : MonoBehaviour
                           "HMDPositionX,HMDPositionY,HMDPositionZ," +
                           "HMDRotationX,HMDRotationY,HMDRotationZ,HMDRotationW," +
                           "HMDEulerX,HMDEulerY,HMDEulerZ," +
-                          "HMDVelocityValid,HMDVelocityX,HMDVelocityY,HMDVelocityZ," +
-                          "HMDAngularVelocityValid,HMDAngularVelocityX,HMDAngularVelocityY,HMDAngularVelocityZ," +
-                          "HumanMPositionX,HumanMPositionY,HumanMPositionZ," +
                           "BallPositionX,BallPositionY,BallPositionZ," +
                           "Ball2PositionX,Ball2PositionY,Ball2PositionZ," +
                           "CubeHumanPositionX,CubeHumanPositionY,CubeHumanPositionZ");
@@ -1058,17 +1055,6 @@ public class EyeDataRecorder : MonoBehaviour
                                   $"{(hasHMD ? hmd.eulerX.ToString("F6") : "")}," +
                                   $"{(hasHMD ? hmd.eulerY.ToString("F6") : "")}," +
                                   $"{(hasHMD ? hmd.eulerZ.ToString("F6") : "")}," +
-                                  $"{(hasHMD ? hmd.velocityValid.ToString() : "")}," +
-                                  $"{(hasHMD && hmd.velocityValid ? hmd.velocityX.ToString("F6") : "")}," +
-                                  $"{(hasHMD && hmd.velocityValid ? hmd.velocityY.ToString("F6") : "")}," +
-                                  $"{(hasHMD && hmd.velocityValid ? hmd.velocityZ.ToString("F6") : "")}," +
-                                  $"{(hasHMD ? hmd.angularVelocityValid.ToString() : "")}," +
-                                  $"{(hasHMD && hmd.angularVelocityValid ? hmd.angularVelocityX.ToString("F6") : "")}," +
-                                  $"{(hasHMD && hmd.angularVelocityValid ? hmd.angularVelocityY.ToString("F6") : "")}," +
-                                  $"{(hasHMD && hmd.angularVelocityValid ? hmd.angularVelocityZ.ToString("F6") : "")}," +
-                                  $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.x.ToString("F6") : "")}," +
-                                  $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.y.ToString("F6") : "")}," +
-                                  $"{(hasPos && posData.humanMPosition.HasValue ? posData.humanMPosition.Value.z.ToString("F6") : "")}," +
                                   $"{(hasPos && posData.ballPosition.HasValue ? posData.ballPosition.Value.x.ToString("F6") : "")}," +
                                   $"{(hasPos && posData.ballPosition.HasValue ? posData.ballPosition.Value.y.ToString("F6") : "")}," +
                                   $"{(hasPos && posData.ballPosition.HasValue ? posData.ballPosition.Value.z.ToString("F6") : "")}," +

@@ -20,11 +20,27 @@ public static class SharedPositionDataRecorder
     }
 
     private static List<UnifiedPositionData> _unifiedDataList = new List<UnifiedPositionData>();
+    // タイムスタンプ→インデックスのマッピング（高速検索用）
+    private static Dictionary<long, int> _timestampIndexMap = new Dictionary<long, int>();
     private static object _dataLock = new object();
     private static string _sharedTimestamp = null;
     private static object _timestampLock = new object();
     private static string _teamSuffix = "White";
     private static int _targetFrequency = 120; // 目標記録周波数（Hz）
+
+    // タイムスタンプの精度（0.0001秒 = 100マイクロ秒）
+    private const float TIMESTAMP_TOLERANCE = 0.0001f;
+    // タイムスタンプを整数キーに変換（1000000倍 = マイクロ秒単位）
+    // 精度を上げて、時系列のずれを防止
+    private const long TIMESTAMP_SCALE = 1000000L;
+
+    /// <summary>
+    /// タイムスタンプを適切に丸める（時系列のずれを防止）
+    /// </summary>
+    private static float RoundTimestamp(float timestamp)
+    {
+        return Mathf.Round(timestamp / TIMESTAMP_TOLERANCE) * TIMESTAMP_TOLERANCE;
+    }
 
     /// <summary>
     /// 共有タイムスタンプを設定
@@ -68,15 +84,26 @@ public static class SharedPositionDataRecorder
     }
 
     /// <summary>
+    /// タイムスタンプを整数キーに変換（高速検索用）
+    /// </summary>
+    private static long TimestampToKey(float timestamp)
+    {
+        return (long)(timestamp * TIMESTAMP_SCALE);
+    }
+
+    /// <summary>
     /// HumanMの位置データを追加
     /// </summary>
     public static void AddHumanMPosition(float timestamp, Vector3 position)
     {
         lock (_dataLock)
         {
-            // 同じタイムスタンプのデータを探す
-            int index = _unifiedDataList.FindIndex(d => Mathf.Abs(d.timestamp - timestamp) < 0.0001f);
-            if (index >= 0)
+            // タイムスタンプを丸めて、時系列のずれを防止
+            float roundedTimestamp = RoundTimestamp(timestamp);
+            long key = TimestampToKey(roundedTimestamp);
+
+            // Dictionaryで高速検索（O(1)）
+            if (_timestampIndexMap.TryGetValue(key, out int index))
             {
                 // 既存のデータを更新
                 var existing = _unifiedDataList[index];
@@ -86,13 +113,15 @@ public static class SharedPositionDataRecorder
             else
             {
                 // 新しいデータを追加
+                int newIndex = _unifiedDataList.Count;
                 _unifiedDataList.Add(new UnifiedPositionData
                 {
-                    timestamp = timestamp,
+                    timestamp = roundedTimestamp,
                     humanMPosition = position,
                     ballPosition = null,
                     ball2Position = null
                 });
+                _timestampIndexMap[key] = newIndex;
             }
         }
     }
@@ -104,9 +133,12 @@ public static class SharedPositionDataRecorder
     {
         lock (_dataLock)
         {
-            // 同じタイムスタンプのデータを探す
-            int index = _unifiedDataList.FindIndex(d => Mathf.Abs(d.timestamp - timestamp) < 0.0001f);
-            if (index >= 0)
+            // タイムスタンプを丸めて、時系列のずれを防止
+            float roundedTimestamp = RoundTimestamp(timestamp);
+            long key = TimestampToKey(roundedTimestamp);
+
+            // Dictionaryで高速検索（O(1)）
+            if (_timestampIndexMap.TryGetValue(key, out int index))
             {
                 // 既存のデータを更新
                 var existing = _unifiedDataList[index];
@@ -116,13 +148,15 @@ public static class SharedPositionDataRecorder
             else
             {
                 // 新しいデータを追加
+                int newIndex = _unifiedDataList.Count;
                 _unifiedDataList.Add(new UnifiedPositionData
                 {
-                    timestamp = timestamp,
+                    timestamp = roundedTimestamp,
                     humanMPosition = null,
                     ballPosition = position,
                     ball2Position = null
                 });
+                _timestampIndexMap[key] = newIndex;
             }
         }
     }
@@ -134,9 +168,12 @@ public static class SharedPositionDataRecorder
     {
         lock (_dataLock)
         {
-            // 同じタイムスタンプのデータを探す
-            int index = _unifiedDataList.FindIndex(d => Mathf.Abs(d.timestamp - timestamp) < 0.0001f);
-            if (index >= 0)
+            // タイムスタンプを丸めて、時系列のずれを防止
+            float roundedTimestamp = RoundTimestamp(timestamp);
+            long key = TimestampToKey(roundedTimestamp);
+
+            // Dictionaryで高速検索（O(1)）
+            if (_timestampIndexMap.TryGetValue(key, out int index))
             {
                 // 既存のデータを更新
                 var existing = _unifiedDataList[index];
@@ -146,13 +183,15 @@ public static class SharedPositionDataRecorder
             else
             {
                 // 新しいデータを追加
+                int newIndex = _unifiedDataList.Count;
                 _unifiedDataList.Add(new UnifiedPositionData
                 {
-                    timestamp = timestamp,
+                    timestamp = roundedTimestamp,
                     humanMPosition = null,
                     ballPosition = null,
                     ball2Position = position
                 });
+                _timestampIndexMap[key] = newIndex;
             }
         }
     }
@@ -165,6 +204,7 @@ public static class SharedPositionDataRecorder
         lock (_dataLock)
         {
             _unifiedDataList.Clear();
+            _timestampIndexMap.Clear();
         }
         lock (_timestampLock)
         {
@@ -222,19 +262,28 @@ public static class SharedPositionDataRecorder
                 }
 
                 // タイムスタンプでソート（データがある場合のみ）
-                var sortedData = hasData ? _unifiedDataList.OrderBy(d => d.timestamp).ToList() : new List<UnifiedPositionData>();
+                // 容量を事前に確保してメモリ割り当てを削減
+                List<UnifiedPositionData> sortedData;
+                if (hasData)
+                {
+                    sortedData = new List<UnifiedPositionData>(_unifiedDataList.Count);
+                    sortedData.AddRange(_unifiedDataList);
+                    sortedData.Sort((a, b) => a.timestamp.CompareTo(b.timestamp));
+                }
+                else
+                {
+                    sortedData = new List<UnifiedPositionData>();
+                }
 
-                // データを90Hzで補間（データがある場合のみ）
-                var interpolatedData = hasData ? InterpolateData(sortedData, 90) : new List<UnifiedPositionData>();
-
+                // 補間なし：記録されたデータをそのまま使用
                 if (enableDebugLogs)
                 {
-                    Debug.Log($"[SharedPositionDataRecorder] 元のデータ件数: {sortedData.Count}件 → 補間後: {interpolatedData.Count}件");
-                    if (sortedData.Count > 0 && interpolatedData.Count > 0)
+                    Debug.Log($"[SharedPositionDataRecorder] データ件数: {sortedData.Count}件（補間なし）");
+                    if (sortedData.Count > 0)
                     {
                         float originalDuration = sortedData[sortedData.Count - 1].timestamp - sortedData[0].timestamp;
                         float typicalInterval = CalculateTypicalInterval(sortedData);
-                        Debug.Log($"[SharedPositionDataRecorder] 記録時間: {originalDuration:F2}秒, 典型的な間隔: {typicalInterval:F6}秒, 補間倍率: {(float)interpolatedData.Count / sortedData.Count:F2}倍");
+                        Debug.Log($"[SharedPositionDataRecorder] 記録時間: {originalDuration:F2}秒, 典型的な間隔: {typicalInterval:F6}秒");
                     }
                 }
 
@@ -246,7 +295,7 @@ public static class SharedPositionDataRecorder
                 // データ行（データがない場合は空行のみ）
                 if (hasData)
                 {
-                    foreach (var data in interpolatedData)
+                    foreach (var data in sortedData)
                     {
                         string humanMX = data.humanMPosition.HasValue ? data.humanMPosition.Value.x.ToString("F6") : "";
                         string humanMY = data.humanMPosition.HasValue ? data.humanMPosition.Value.y.ToString("F6") : "";
@@ -270,7 +319,7 @@ public static class SharedPositionDataRecorder
                     long fileSize = new FileInfo(filePath).Length;
                     if (enableDebugLogs)
                     {
-                        Debug.Log($"[SharedPositionDataRecorder] ✓ 統合座標データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {interpolatedData.Count}件)");
+                        Debug.Log($"[SharedPositionDataRecorder] ✓ 統合座標データを保存しました: {filePath} (サイズ: {fileSize} bytes, データ件数: {sortedData.Count}件)");
                     }
                 }
                 else
@@ -333,7 +382,9 @@ public static class SharedPositionDataRecorder
         float endTime = originalData[originalData.Count - 1].timestamp;
         float totalDuration = endTime - startTime;
 
-        List<UnifiedPositionData> interpolated = new List<UnifiedPositionData>();
+        // 容量を事前に確保してメモリ割り当てを削減
+        int estimatedCount = Mathf.CeilToInt(totalDuration * targetFrequency) + 1;
+        List<UnifiedPositionData> interpolated = new List<UnifiedPositionData>(estimatedCount);
 
         // 120Hzの間隔で最初から最後まで一貫してデータを生成
         float currentTime = startTime;
