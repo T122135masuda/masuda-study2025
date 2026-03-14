@@ -129,22 +129,22 @@
 
 5) HumanMWalker（人間キャラクター歩行制御）
 - 目的: 人間キャラクター（HumanM_Model、Capsule-humann、Cube-human）の歩行アニメーションと移動制御
-- 自動テレポートシーケンス（シーン開始時に自動実行）:
-  - 初期位置 (4.99, 0.978, 4.45) からスタート（Idleアニメーション）
-  - 15秒待機
-  - テレポート位置 (2.1, 0.978, 4.45) へテレポート
-  - 目標位置 (-2.17, 0.978, 4.45) まで歩行
-    - 歩行アニメーション再生
-    - 移動方向へ自動回転
+- テレポート＋歩行シーケンス:
+  - 基本動作: テレポート位置 (2.1, 0.978, 4.45) へ瞬間移動 → 目標位置 (-2.17, 0.978, 4.45) まで歩行 → 開始位置 (4.99, 0.978, 4.45) にテレポートして戻る → Idle
+  - 待機時間:
+    - 1回目: 50〜60秒（ランダム）
+    - 2回目: 120〜150秒（ランダム。シーケンス開始からの経過を考慮して残り時間だけ待機）
+  - 歩行:
     - 歩行速度: 2.0 m/s（デフォルト）
     - 到着判定距離: 0.5m以内
-  - 目標位置到着後、元の位置 (4.99, 0.978, 4.45) にテレポート
-  - 歩行停止（Idleアニメーションに戻る）
+    - 移動方向へ自動回転（Slerp）
+- 開始タイミング（重要）:
+  - HumanM_Model / Capsule-humann: シーン開始時にシーケンスを自動開始
+  - Cube-human: シーン開始時に出現タイミング（1回目/2回目の待機秒数）を決定し、Enterキー押下でシーケンス開始
 - エンターキー操作（手動操作）:
-  - エンターキー押下で座標記録開始（有効な場合）
-  - 初期位置 (4.99, 0.978, 4.45) にリセット
-  - 15秒待機
-  - 待機完了後、移動なし（Idle状態のまま）
+  - 共通: Enter押下で座標記録開始（有効な場合）＋開始位置にリセット
+  - HumanM_Model / Capsule-humann: Enter後は `startDelayTime` 秒待機し、移動なし（Idleのまま）
+  - Cube-human: Enterで上記のテレポート＋歩行シーケンスを開始
 - 位置制御:
   - Y座標は常に0.978に統一（動き始めてもY座標が0になることはない）
   - すべての位置設定時にY座標を0.978に固定
@@ -156,15 +156,18 @@
   - アニメーション速度の調整（歩行速度に連動）
   - Legacyアニメーションエラーを回避（Animationコンポーネントは使用しない）
 - 座標記録機能:
-  - エンターキー押下時に自動開始
-  - デフォルト20Hz、最大60秒間記録
-  - CSVファイルに保存（Assets/dataフォルダ）
-  - SharedPositionDataRecorderでBallと統合記録
+  - HumanM_Model / Capsule-humann:
+    - Enter押下で記録開始
+    - デフォルト20Hz、3分（180秒）記録
+    - SharedPositionDataRecorderでBallと統合記録し、終了時に `Assets/data` へCSV保存
+  - Cube-human（専用）:
+    - シーン開始時から自動で 20Hz 記録（Enterに依存しない）
+    - `OnDestroy()` 時に `Assets/data` へ `CubeHumanPositionData_yyyyMMdd_HHmmss.csv` を保存
 - デバッグ機能:
   - 詳細なデバッグ情報の表示
   - リアルタイムでの状態監視
 - 入出力:
-  - Enterキーで座標記録開始、15秒待機
+  - Enterキーで座標記録開始（Cube-humanは出現シーケンスも開始）
   - API: SetStartPosition(Vector3), IsMoving(), GetCurrentTarget()
 
 6) FirstPersonCamera（一人称カメラ）
@@ -307,7 +310,7 @@
   - startPosition (Vector3) : 開始位置（デフォルト: 4.99, 0.978, 4.45）。インスペクターで変更
   - teleportPosition (Vector3) : テレポート先位置（デフォルト: 2.1, 0.978, 4.45）。インスペクターで変更
   - walkTargetPosition (Vector3) : テレポート後の目標位置（デフォルト: -2.17, 0.978, 4.45）。インスペクターで変更
-  - teleportDelayTime (float) : テレポートまでの待機時間（15.0秒）。インスペクターで変更
+  - teleportDelayTime (float) : テレポートまでの待機時間（インスペクター項目）。※現行のシーケンスはランダム待機（50〜60秒/120〜150秒）を使用
   - startDelayTime (float) : エンターキー押下後の待機時間（15.0秒）。インスペクターで変更
   - arrivalDistance (float) : 到着判定の距離（0.5m）。インスペクターで変更
   - waitTime (float) : 到着後の待機時間（2.0秒）。インスペクターで変更
@@ -342,7 +345,7 @@
 - enableStereoRendering (bool) : ステレオ描画を有効化するか。インスペクターで変更
 
 キーボード操作一覧
-- Enter: 全エージェントの一時停止/再開、HumanMWalkerの座標記録開始（15秒待機後、移動なし）
+- Enter: 全エージェントの一時停止/再開、HumanMWalkerの座標記録開始（Cube-humanは出現シーケンス開始）
 - Space: 視線データ記録中にアンカーを打つ（EyeDataRecorder）
 - 1-5: ボール速度プリセット（VerySlow/Slow/Normal/Fast/VeryFast）
 - +/-: ボール速度の微調整
@@ -356,6 +359,6 @@
 - HumanMWalkerのアニメーションエラーは解決済みです。Legacyアニメーション（Animationコンポーネント）は
   使用せず、Animatorコンポーネントのみを使用してアニメーションを制御します。
 - アニメーション速度は歩行速度に連動して自動調整され、パラメータベースの制御は行いません。
-- HumanMWalkerは HumanM_Model、Capsule-humann、Cube-human に自動付与され、同じ動作をします。
+- HumanMWalkerは HumanM_Model、Capsule-humann、Cube-human に自動付与されますが、Cube-humanだけ出現シーケンスの開始がEnterキー依存です。
 - Y座標は常に0.978に統一され、動き始めても0になることはありません。
-- シーン開始時に自動でテレポートシーケンスが実行されます（15秒待機→テレポート→歩行→元の位置に戻る）。
+- HumanM_Model / Capsule-humann はシーン開始時に自動でテレポートシーケンスが実行されます（50〜60秒待機→テレポート→歩行→元の位置に戻る、2回目あり）。
