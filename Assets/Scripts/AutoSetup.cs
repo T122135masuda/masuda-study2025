@@ -48,8 +48,6 @@ public class AutoSetup : MonoBehaviour
     public bool setupBallPass = true;
     public BallPassController.PassTeam defaultPassTeam = BallPassController.PassTeam.White;
 
-
-
     [Header("Rendering Settings")]
     [Tooltip("リフレクションプローブ設定を一括調整する")]
     public bool adjustReflectionProbes = true;
@@ -106,7 +104,6 @@ public class AutoSetup : MonoBehaviour
                 light.gameObject.name == "Directional Light" &&
                 light.gameObject.scene != currentScene)
             {
-                Debug.Log($"AutoSetup: 前のシーンから残っているDirectional Lightを削除: {light.gameObject.name} (シーン: {light.gameObject.scene.name})");
                 Destroy(light.gameObject);
             }
         }
@@ -134,7 +131,6 @@ public class AutoSetup : MonoBehaviour
             if (mainCamera != null)
             {
                 mainCamera.enabled = true;
-                Debug.LogWarning("AutoSetup: 有効なカメラが見つかりませんでした。メインカメラを有効化しました。");
             }
             else
             {
@@ -142,7 +138,6 @@ public class AutoSetup : MonoBehaviour
                 if (allCameras.Length > 0)
                 {
                     allCameras[0].enabled = true;
-                    Debug.LogWarning($"AutoSetup: カメラが見つかりませんでした。{allCameras[0].name}を有効化しました。");
                 }
             }
         }
@@ -164,7 +159,6 @@ public class AutoSetup : MonoBehaviour
             var obj = GameObject.Find(name);
             if (obj == null)
             {
-                Debug.LogWarning($"AutoSetup: {name} が見つかりません");
                 continue;
             }
 
@@ -243,7 +237,6 @@ public class AutoSetup : MonoBehaviour
         GameObject headCamera = GameObject.Find("head-camera");
         if (headCamera == null)
         {
-            Debug.LogWarning("AutoSetup: head-cameraが見つかりませんでした。メインカメラを使用します。");
             // head-cameraが見つからない場合は、メインカメラを有効のままにする
             if (mainCamera != null)
             {
@@ -255,8 +248,6 @@ public class AutoSetup : MonoBehaviour
 
         // head-cameraのGameObjectを有効化（重要！）
         headCamera.SetActive(true);
-
-        Debug.Log($"AutoSetup: head-cameraを検出しました - 位置: {headCamera.transform.position}, ローカル位置: {headCamera.transform.localPosition}");
 
         // head-cameraにFirstPersonCameraをアタッチ
         FirstPersonCamera firstPersonCamera = headCamera.GetComponent<FirstPersonCamera>();
@@ -289,15 +280,12 @@ public class AutoSetup : MonoBehaviour
             camera.depth = mainCamera.depth + 1; // メインカメラより前に描画
         }
 
-        Debug.Log("AutoSetup: head-cameraにFirstPersonCameraをアタッチしました: " + headCamera.name);
-
         // メインカメラを無効化（head-cameraが見つかった場合のみ）
         if (disableMainCamera)
         {
             if (mainCamera != null && mainCamera.gameObject != headCamera)
             {
                 mainCamera.enabled = false;
-                Debug.Log("AutoSetup: メインカメラを無効化しました（head-cameraを使用）");
             }
         }
     }
@@ -331,8 +319,6 @@ public class AutoSetup : MonoBehaviour
         SetupBallObject("Ball２", BallPassController.PassTeam.Black);
     }
 
-
-
     private void ApplyReflectionProbeSettings()
     {
         // 対象: Ball と 各エージェント（子も含む）
@@ -343,8 +329,6 @@ public class AutoSetup : MonoBehaviour
 
         var ball = GameObject.Find("Ball");
         if (ball != null) targets.Add(ball);
-
-
 
         foreach (var root in targets)
         {
@@ -398,12 +382,6 @@ public class AutoSetup : MonoBehaviour
             {
                 walker.SetAnimatorController(walkController);
             }
-
-            Debug.Log($"AutoSetup: HumanM_Modelに歩行アニメーションを設定しました: {walkController.name}");
-        }
-        else
-        {
-            Debug.LogWarning("AutoSetup: 歩行アニメーションコントローラーが見つかりませんでした。手動で設定してください。");
         }
 
         // アニメーション速度を調整（必要に応じて）
@@ -425,35 +403,14 @@ public class AutoSetup : MonoBehaviour
             RuntimeAnimatorController controller = Resources.Load<RuntimeAnimatorController>(controllerName);
             if (controller != null)
             {
-                Debug.Log($"AutoSetup: アニメーションコントローラーを発見: {controllerName}");
                 return controller;
             }
         }
 
         // Resourcesフォルダから見つからない場合は、シーン内のオブジェクトから検索
-        Debug.LogWarning("AutoSetup: Resourcesフォルダからアニメーションコントローラーが見つかりませんでした。");
-        Debug.LogWarning("AutoSetup: 手動でアニメーションコントローラーを設定してください。");
-
         return null;
     }
 
-    private Transform FindChildRecursive(Transform parent, string childName)
-    {
-        foreach (Transform child in parent)
-        {
-            if (child.name == childName)
-            {
-                return child;
-            }
-
-            Transform result = FindChildRecursive(child, childName);
-            if (result != null)
-            {
-                return result;
-            }
-        }
-        return null;
-    }
 }
 
 

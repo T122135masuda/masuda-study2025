@@ -1,4 +1,74 @@
-現在の機能一覧（詳細）
+＝＝＝ システム概要と手順 ＝＝＝
+
+【システム概要】
+本システムは、Unity上でバスケットボールコート内のエージェント（カプセル型）と人間キャラクター（HumanM_Model / Capsule-humann / Cube-human）の挙動を制御する研究・実験用シミュレーションです。
+- エージェント: コート内をランダムに移動・回避・隊列・高さ変化・パスカットなどを行う
+- ボール: チーム間でパスが行われ、速度・回数・パス時の静止などを制御可能
+- 人間キャラ: テレポート→歩行→元の位置に戻るシーケンスと、座標記録（CSV出力）が可能
+- 一人称カメラ（head-camera）でVRを意識した視点操作が可能
+起動時に AutoSetup が CourtManager・各エージェント・人間キャラ・カメラなどを自動で整えるため、シーンを開いて再生するだけで基本的な動作が始まります。
+
+【手順】
+1. Unityでプロジェクトを開き、対象シーンを開く
+2. 再生（Play）を開始する
+   - CourtManager・エージェント・人間キャラ・head-camera は自動セットアップされる
+   - ボールのパスとエージェントの移動が自動で開始される
+   - HumanM_Model / Capsule-humann はシーン開始から一定時間後にテレポート＋歩行シーケンスが自動開始される
+3. （任意）Enterキー: 全エージェントの一時停止/再開、HumanMWalkerの座標記録開始。Cube-human の場合は出現シーケンスも Enter で開始
+4. （任意）ボール速度は 1〜5 / +/- / PageUp・PageDown、パス回数リセットは R。ESC でカーソルロック切替
+5. 座標記録を有効にしている場合、記録終了後に Assets/data に CSV が保存される（HumanM は Enter で記録開始、Cube-human は自動記録で終了時に保存）
+
+【データ保存（CSV）の保存先・内容】
+- 保存先フォルダ:
+  - 基本: `Assets/data`
+  - 補足: `HumanMWalker` 内では現状、`C:\Users\vrdsl\Desktop\masuda-lab\masuda-study2025\Assets\data` が保存先として設定されています（環境が変わる場合はこのパスに注意）
+- 保存タイミング:
+  - HumanM_Model / Capsule-humann: Enter で記録開始 → 規定時間（デフォルト 180 秒）後に保存
+  - Cube-human: シーン開始時から自動で記録 → オブジェクト破棄（`OnDestroy()`）時に保存
+- 記録周波数:
+  - デフォルト 20Hz（約 0.05 秒間隔）
+- 保存ファイル名と保存される列（ヘッダー）:
+  - 統合座標（HumanM + Ball + Ball2）:
+    - ファイル名: `PositionData_<TeamSuffix>_yyyyMMdd_HHmmss.csv`（例: `PositionData_White_20260317_115052.csv`）
+    - 列: `Timestamp,HumanMPositionX,HumanMPositionY,HumanMPositionZ,BallPositionX,BallPositionY,BallPositionZ,Ball2PositionX,Ball2PositionY,Ball2PositionZ`
+    - 補足: その時刻に未記録の対象（例: Ball2 が無い等）は該当セルが空欄になります
+  - Cube-human 専用座標:
+    - ファイル名: `CubeHumanPositionData_yyyyMMdd_HHmmss.csv`
+    - 列: `Timestamp,PositionX,PositionY,PositionZ`
+    - Timestamp は「記録開始からの相対秒」です
+
+- 各列が表すもの（詳細）:
+  - 共通:
+    - Timestamp:
+      - 単位: 秒
+      - 統合座標CSV: シーン（記録）開始からの「絶対時間」（float, 小数第6位まで）
+      - Cube-human CSV: 記録開始時を 0 とした「相対時間」（float, 小数第6位まで）
+  - 統合座標CSV（PositionData_*）:
+    - HumanMPositionX / HumanMPositionY / HumanMPositionZ:
+      - HumanM（HumanM_Model / Capsule-humann）の位置（Unity ワールド座標）
+      - 単位: メートル（Unity の 1 unit = 1 m を想定）
+    - BallPositionX / BallPositionY / BallPositionZ:
+      - メインボールの位置（Unity ワールド座標, m）
+    - Ball2PositionX / Ball2PositionY / Ball2PositionZ:
+      - 2つ目のボールの位置（存在する条件のみ値が入り、それ以外は空欄）
+  - Cube-human CSV（CubeHumanPositionData_*）:
+    - PositionX / PositionY / PositionZ:
+      - Cube-human オブジェクトの位置（Unity ワールド座標, m）
+      - Y 座標は `HumanMWalker` により常に約 0.978 に保たれ、床面からの高さを表します
+
+【動作時間・記録時間】
+- シミュレーション全体: 再生し続ける限り動作（停止するまで無制限）。ボールのパスとエージェントの移動は継続。
+- 人間キャラ（HumanM_Model / Capsule-humann）のテレポート＋歩行:
+  - 1回目: シーン開始から 50〜60秒（ランダム）待機後、テレポート→目標位置まで歩行→元の位置にテレポート
+  - 2回目: シーン開始から 120〜150秒（ランダム）経過後に同様のシーケンスを1回実行
+- 座標記録（HumanM / Capsule-humann）: Enterで記録開始後、3分間（180秒）・20Hz で記録し、終了時に CSV を保存
+- Cube-human: 出現タイミングは 1回目 50〜60秒、2回目 120〜150秒（シーン開始時に決定）。座標はシーン開始から自動で 20Hz 記録し、オブジェクト破棄時に CSV を保存
+- 視線データ記録（EyeDataRecorder 使用時）: 特定シーンでは記録開始から 3分（180秒）で自動終了
+- パス時の静止: パス送り手・受け手の一時停止は約 1.5秒（passPauseDuration）
+
+※ グローバル高さ制御・チーム混在・パスカットなどは CourtManager および各コンポーネントのインスペクターで変更可能。詳細は以下「現在の機能一覧」を参照。
+
+＝＝＝ 現在の機能一覧（詳細） ＝＝＝
 
 1) AutoSetup（自動セットアップ）
 - 目的: シーン起動時に必要な管理オブジェクト/コンポーネントを自動で整える
